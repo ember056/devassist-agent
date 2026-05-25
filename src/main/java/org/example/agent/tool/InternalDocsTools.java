@@ -1,6 +1,7 @@
 package org.example.agent.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.service.TrustedRagRetrievalService;
 import org.example.service.VectorSearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +25,7 @@ public class InternalDocsTools {
     /** 工具名常量，用于动态构建提示词 */
     public static final String TOOL_QUERY_INTERNAL_DOCS = "queryInternalDocs";
     
-    private final VectorSearchService vectorSearchService;
+    private final TrustedRagRetrievalService trustedRagRetrievalService;
     
     @Value("${rag.top-k:3}")
     private int topK = 3; // 默认值
@@ -33,11 +34,13 @@ public class InternalDocsTools {
     
     /**
      * 构造函数注入依赖
-     * Spring 会自动注入 VectorSearchService
+     * Spring 会自动注入可信 RAG 检索编排服务
      */
     @Autowired
-    public InternalDocsTools(VectorSearchService vectorSearchService) {
-        this.vectorSearchService = vectorSearchService;
+    public InternalDocsTools(
+            TrustedRagRetrievalService trustedRagRetrievalService
+    ) {
+        this.trustedRagRetrievalService = trustedRagRetrievalService;
     }
     
     /**
@@ -56,16 +59,26 @@ public class InternalDocsTools {
         
 
         try {
-            // 使用向量搜索服务检索相关文档
-            List<VectorSearchService.SearchResult> searchResults = 
-                    vectorSearchService.searchSimilarDocuments(query, topK);
+            // 使用可信 RAG 检索编排：query rewrite 保护 + 向量召回 + 轻量 rerank
+            TrustedRagRetrievalService.TrustedRagResult trustedRagResult =
+                    trustedRagRetrievalService.retrieve(query, topK);
+            List<VectorSearchService.SearchResult> searchResults = trustedRagResult.getResults();
             
             if (searchResults.isEmpty()) {
                 return "{\"status\": \"no_results\", \"message\": \"No relevant documents found in the knowledge base.\"}";
             }
             
             // 将搜索结果转换为 JSON 格式
-            String resultJson = objectMapper.writeValueAsString(searchResults);
+            String resultJson = objectMapper.writeValueAsString(new TrustedToolResult(
+                    "success",
+                    trustedRagResult.getPreprocess().originalQuery(),
+                    trustedRagResult.getPreprocess().finalQuery(),
+                    trustedRagResult.getPreprocess().rewrittenQuery(),
+                    trustedRagResult.getPreprocess().similarity(),
+                    trustedRagResult.getPreprocess().rewriteAccepted(),
+                    trustedRagResult.isRerankApplied(),
+                    searchResults
+            ));
             
 
             return resultJson;
@@ -75,5 +88,17 @@ public class InternalDocsTools {
             return String.format("{\"status\": \"error\", \"message\": \"Failed to query internal docs: %s\"}", 
                     e.getMessage());
         }
+    }
+
+    private record TrustedToolResult(
+            String status,
+            String originalQuery,
+            String finalQuery,
+            String rewrittenQuery,
+            double rewriteSimilarity,
+            boolean rewriteAccepted,
+            boolean rerankApplied,
+            List<VectorSearchService.SearchResult> results
+    ) {
     }
 }

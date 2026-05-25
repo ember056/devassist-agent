@@ -11,6 +11,7 @@ import com.alibaba.cloud.ai.graph.streaming.StreamingOutput;
 import lombok.Getter;
 import lombok.Setter;
 import org.example.service.AiOpsService;
+import org.example.service.ChatAnswerVerificationService;
 import org.example.service.ChatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +46,9 @@ public class ChatController {
     
     @Autowired
     private ChatService chatService;
+
+    @Autowired
+    private ChatAnswerVerificationService chatAnswerVerificationService;
 
     @Autowired
     private ToolCallbackProvider tools;
@@ -96,6 +100,7 @@ public class ChatController {
             
             // 执行对话
             String fullAnswer = chatService.executeChat(agent, request.getQuestion());
+            fullAnswer = chatAnswerVerificationService.verifyIfNeeded(request.getQuestion(), fullAnswer);
             
             // 更新会话历史
             session.addMessage(request.getQuestion(), fullAnswer);
@@ -241,8 +246,18 @@ public class ChatController {
                         // 完成处理
                         try {
                             String fullAnswer = fullAnswerBuilder.toString();
+                            fullAnswer = chatAnswerVerificationService.verifyIfNeeded(request.getQuestion(), fullAnswer);
                             logger.info("ReactAgent 流式对话完成 - SessionId: {}, 答案长度: {}", 
                                 request.getId(), fullAnswer.length());
+
+                            String appendedVerification = fullAnswer.substring(
+                                    Math.min(fullAnswerBuilder.length(), fullAnswer.length())
+                            );
+                            if (!appendedVerification.isEmpty()) {
+                                emitter.send(SseEmitter.event()
+                                        .name("message")
+                                        .data(SseMessage.content(appendedVerification), MediaType.APPLICATION_JSON));
+                            }
                             
                             // 更新会话历史
                             session.addMessage(request.getQuestion(), fullAnswer);

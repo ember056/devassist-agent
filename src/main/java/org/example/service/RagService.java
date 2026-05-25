@@ -33,6 +33,12 @@ public class RagService {
     @Autowired
     private VectorSearchService vectorSearchService;
 
+    @Autowired
+    private TrustedRagRetrievalService trustedRagRetrievalService;
+
+    @Autowired
+    private FaithfulnessVerifierService faithfulnessVerifierService;
+
     @Value("${dashscope.api.key}")
     private String apiKey;
 
@@ -77,9 +83,10 @@ public class RagService {
         try {
             logger.info("收到 RAG 流式查询: {}", question);
 
-            // 1. 从向量数据库检索相关文档
-            List<VectorSearchService.SearchResult> searchResults = 
-                vectorSearchService.searchSimilarDocuments(question, topK);
+            // 1. 可信 RAG 检索：query rewrite 保护 + 向量召回 + 轻量 rerank
+            TrustedRagRetrievalService.TrustedRagResult trustedRagResult =
+                    trustedRagRetrievalService.retrieve(question, topK);
+            List<VectorSearchService.SearchResult> searchResults = trustedRagResult.getResults();
 
             // 发送检索结果
             callback.onSearchResults(searchResults);
@@ -92,10 +99,10 @@ public class RagService {
 
             // 2. 构建上下文和提示词
             String context = buildContext(searchResults);
-            String prompt = buildPrompt(question, context);
+            String prompt = buildPrompt(question, context, trustedRagResult);
 
             // 3. 流式调用大语言模型（传入历史消息）
-            generateAnswerStream(prompt, history, callback);
+            generateAnswerStream(prompt, history, searchResults, callback);
 
         } catch (Exception e) {
             logger.error("RAG 流式查询失败", e);
@@ -111,7 +118,15 @@ public class RagService {
         
         for (int i = 0; i < searchResults.size(); i++) {
             VectorSearchService.SearchResult result = searchResults.get(i);
-            context.append("【参考资料 ").append(i + 1).append("】\n");
+            int sourceIndex = result.getSourceIndex() == null ? i + 1 : result.getSourceIndex();
+            context.append("【参考资料 ").append(sourceIndex).append("】\n");
+            context.append("score: ").append(result.getScore()).append("\n");
+            if (result.getRerankScore() != null) {
+                context.append("rerankScore: ").append(String.format("%.4f", result.getRerankScore())).append("\n");
+            }
+            if (result.getMetadata() != null) {
+                context.append("metadata: ").append(result.getMetadata()).append("\n");
+            }
             context.append(result.getContent()).append("\n\n");
         }
         
@@ -121,13 +136,30 @@ public class RagService {
     /**
      * 构建提示词
      */
-    private String buildPrompt(String question, String context) {
+    private String buildPrompt(
+            String question,
+            String context,
+            TrustedRagRetrievalService.TrustedRagResult trustedRagResult
+    ) {
         return String.format(
             "你是一个专业的AI助手。请根据以下参考资料回答用户的问题。\n\n" +
+            "检索增强信息：\n" +
+            "- 原始问题：%s\n" +
+            "- 实际检索问题：%s\n" +
+            "- Query Rewrite 是否采用：%s\n" +
+            "- Rewrite 相似度：%.4f\n" +
+            "- 是否触发 Rerank：%s\n\n" +
             "参考资料：\n%s\n" +
             "用户问题：%s\n\n" +
-            "请基于上述参考资料给出准确、详细的回答。如果参考资料中没有相关信息，请明确说明。",
-            context, question
+            "请基于上述参考资料给出准确、详细的回答。如果参考资料中没有相关信息，请明确说明。" +
+            "回答末尾必须添加“参考来源”小节，列出使用到的参考资料编号。",
+            trustedRagResult.getPreprocess().originalQuery(),
+            trustedRagResult.getPreprocess().finalQuery(),
+            trustedRagResult.getPreprocess().rewriteAccepted() ? "是" : "否",
+            trustedRagResult.getPreprocess().similarity(),
+            trustedRagResult.isRerankApplied() ? "是" : "否",
+            context,
+            question
         );
     }
 
@@ -138,7 +170,12 @@ public class RagService {
      * @param history 历史消息列表
      * @param callback 流式回调接口
      */
-    private void generateAnswerStream(String prompt, List<Map<String, String>> history, StreamCallback callback) 
+    private void generateAnswerStream(
+            String prompt,
+            List<Map<String, String>> history,
+            List<VectorSearchService.SearchResult> searchResults,
+            StreamCallback callback
+    )
             throws NoApiKeyException, ApiException, InputRequiredException {
         
         // 构建消息列表：历史消息 + 当前问题
@@ -215,6 +252,23 @@ public class RagService {
         });
         
         logger.info("AI模型流式响应完成，总内容长度: {}", finalContent.length());
+
+        FaithfulnessVerifierService.VerificationResult verificationResult =
+                faithfulnessVerifierService.verify(finalContent.toString(), searchResults);
+
+        if (!verificationResult.passed()) {
+            String warning = String.format(
+                    "\n\n> 忠实度检查提醒：当前答案未通过 %s 校验（coverage=%.4f，原因：%s），请优先以参考资料为准。",
+                    verificationResult.verifier(),
+                    verificationResult.coverage(),
+                    verificationResult.reason()
+            );
+            if (!verificationResult.unsupportedClaims().isEmpty()) {
+                warning += "\n> 未被资料支持的表述：" + String.join("；", verificationResult.unsupportedClaims());
+            }
+            finalContent.append(warning);
+            callback.onContentChunk(warning);
+        }
 
         callback.onComplete(finalContent.toString(), reasoningContent.toString());
         logger.info("已调用 onComplete 回调");

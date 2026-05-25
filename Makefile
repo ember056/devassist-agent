@@ -15,7 +15,7 @@ YELLOW = \033[0;33m
 RED = \033[0;31m
 NC = \033[0m # No Color
 
-.PHONY: help init start stop restart check upload clean up down status wait
+.PHONY: help init start stop restart check upload clean up down status wait harness
 
 # 默认目标：显示帮助信息
 help:
@@ -31,6 +31,7 @@ help:
 	@echo "  $(YELLOW)make restart$(NC) - 重启 Spring Boot 服务"
 	@echo "  $(YELLOW)make check$(NC)   - 检查服务器是否运行"
 	@echo "  $(YELLOW)make upload$(NC)  - 上传 aiops-docs 目录下的所有文档"
+	@echo "  $(YELLOW)make harness$(NC) - 运行 RAG / Agent 质量评估 harness"
 	@echo "  $(YELLOW)make clean$(NC)   - 清理临时文件"
 	@echo ""
 	@echo "使用示例："
@@ -204,6 +205,11 @@ test-upload:
 	else \
 		echo "$(RED)测试文件不存在$(NC)"; \
 	fi
+
+# 运行 RAG / Agent 质量评估 Harness
+harness:
+	@echo "$(YELLOW)🧪 运行 RAG / Agent 质量评估 harness...$(NC)"
+	@python harness/runner.py --base-url $(SERVER_URL)
 
 # 启动 Docker Compose（智能检测，避免重复启动）
 up:

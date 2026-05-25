@@ -103,6 +103,8 @@ public class VectorSearchService {
         private String content;
         private float score;
         private String metadata;
+        private Double rerankScore;
+        private Integer sourceIndex;
 
     }
 }

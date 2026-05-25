@@ -1,0 +1,18 @@
+{
+  "id": "chat_general_no_forced_rag",
+  "name": "普通闲聊不强制触发 RAG 校验",
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "harness-general-chat",
+    "Question": "你好，请简单介绍一下你能做什么。"
+  },
+  "assertions": {
+    "contains": [
+      "智能"
+    ],
+    "not_contains": [
+      "可信 RAG 校验"
+    ],
+    "regex": []
+  }
+}

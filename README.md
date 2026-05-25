@@ -41,8 +41,10 @@ DevAssist 将这些问题统一抽象为“研发工单诊断”任务，通过 
 
 - **研发工单分诊**：解析工单中的服务名、接口名、错误码、时间范围和请求 ID，判断问题类型与排查方向。
 - **RAG 知识库**：支持故障处理手册、接口文档、发布规范和历史工单方案上传、分片、向量化与 Milvus 检索。
+- **可信 RAG 校验**：对查询改写、重排序、参考来源和答案忠实度进行后置校验，降低幻觉风险。
 - **工具调用**：将工单查询、日志查询、服务指标查询、内部文档检索和时间查询封装为 Agent 工具。
 - **多 Agent 协作**：采用 Planner-Executor-Supervisor 流程，完成诊断计划制定、证据查询、结果反馈和报告生成。
+- **Harness 质量评估**：通过 JSON 用例自动检查 RAG/Agent 输出是否包含来源、可信校验和关键结构。
 - **流式响应**：基于 SSE 返回大模型生成内容，优化长耗时诊断任务的交互体验。
 - **Web 与 REST API**：提供轻量前端页面和对话、流式对话、文件上传、诊断分析等接口。
 
@@ -63,6 +65,7 @@ DevAssist 将这些问题统一抽象为“研发工单诊断”任务，通过 
 ```text
 devassist-agent/
 ├── aiops-docs/                         # 示例故障处理文档
+├── harness/                            # RAG / Agent 质量评估用例与 runner
 ├── src/main/java/org/example/
 │   ├── agent/tool/                     # Agent 工具
 │   ├── client/                         # Milvus 客户端
@@ -152,6 +155,35 @@ POST /api/ai_ops
 ```bash
 curl -X POST http://localhost:9900/api/upload \
   -F "file=@aiops-docs/cpu_high_usage.md"
+```
+
+## Harness 质量评估
+
+项目提供了轻量级 harness，用来验证 RAG / Agent 输出质量。
+
+运行前需要先启动服务，并完成知识库文档入库：
+
+```bash
+python harness/runner.py
+```
+
+指定服务地址：
+
+```bash
+python harness/runner.py --base-url http://localhost:9900
+```
+
+当前 harness 会检查：
+
+- 文档/排障类问题是否触发“可信 RAG 校验”。
+- 回答是否包含参考来源。
+- 输出中是否包含 Query Rewrite、Rerank、Faithfulness 等关键质量信息。
+- 普通闲聊是否不会被强制触发 RAG 校验。
+
+报告默认输出到：
+
+```text
+harness/reports/latest-report.json
 ```
 
 ## 诊断流程示例

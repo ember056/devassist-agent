@@ -66,6 +66,20 @@ document:
 rag:
   top-k: 3  # 检索返回的最相似文档数量
   model: "qwen3-max"  # 大语言模型名称
+  query-rewrite:
+    enabled: true
+    min-similarity: 0.8  # 改写前后 query 的余弦相似度低于该值时回退原 query
+  rerank:
+    enabled: true
+    min-query-length: 12  # query 较长时触发轻量 rerank
+    close-score-delta: 0.2  # top 结果分数接近时触发 rerank
+  faithfulness:
+    enabled: true
+    verifier-agent-enabled: true  # 优先使用 VerifierAgent 校验答案忠实度，失败时回退本地规则
+    min-coverage: 0.2  # 答案关键词被参考资料覆盖的最低比例
+  chat-verification:
+    enabled: true  # 普通聊天中，文档/排障类问题回答后触发 RAG sources 后置校验
+    top-k: 3
 
 # Prometheus 配置
 prometheus:

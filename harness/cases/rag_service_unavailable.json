@@ -1,0 +1,24 @@
+{
+  "id": "rag_service_unavailable",
+  "name": "服务不可用故障处理建议",
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "harness-rag-service-unavailable",
+    "Question": "服务不可用告警触发后应该按什么步骤排查？请结合知识库。"
+  },
+  "assertions": {
+    "contains": [
+      "可信 RAG 校验",
+      "参考来源",
+      "实际检索问题",
+      "Faithfulness"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "regex": [
+      "参考资料\\s*\\d+",
+      "Faithfulness[：:]\\s*(通过|未通过)"
+    ]
+  }
+}

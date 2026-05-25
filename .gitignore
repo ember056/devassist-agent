@@ -50,6 +50,9 @@ uploads/
 ### Temp Scripts ###
 *.sh
 *.py
+!harness/**/*.py
+__pycache__/
+*.pyc
 
 ### docker
 /volumes

@@ -1,0 +1,25 @@
+{
+  "id": "rag_cpu_runbook",
+  "name": "CPU 高使用率 Runbook 检索",
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "harness-rag-cpu",
+    "Question": "CPU 使用率过高应该怎么排查？请参考内部文档。"
+  },
+  "assertions": {
+    "contains": [
+      "可信 RAG 校验",
+      "参考来源",
+      "Query Rewrite",
+      "Rerank",
+      "Faithfulness"
+    ],
+    "not_contains": [
+      "抱歉，智能运维分析时出现错误"
+    ],
+    "regex": [
+      "Faithfulness[：:]\\s*(通过|未通过)",
+      "Rewrite 相似度[：:]\\s*\\d+\\.\\d+"
+    ]
+  }
+}
