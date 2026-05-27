@@ -38,6 +38,13 @@ public class RerankService {
             return results;
         }
 
+        return rerank(query, results);
+    }
+
+    public List<VectorSearchService.SearchResult> rerank(
+            String query,
+            List<VectorSearchService.SearchResult> results
+    ) {
         return results.stream()
                 .peek(result -> result.setRerankScore(calculateRerankScore(query, result)))
                 .sorted(Comparator.comparing(VectorSearchService.SearchResult::getRerankScore).reversed())

@@ -77,6 +77,12 @@ public class ChatAnswerVerificationService {
         builder.append("- Rewrite 相似度：")
                 .append(String.format("%.4f", trustedRagResult.getPreprocess().similarity()))
                 .append("\n");
+        builder.append("- Query 复杂度：")
+                .append(trustedRagResult.getRoute().getComplexity().name())
+                .append("\n");
+        builder.append("- 召回模式：")
+                .append(trustedRagResult.getRoute().getRetrievalMode().name())
+                .append("\n");
         builder.append("- Rerank 触发：")
                 .append(trustedRagResult.isRerankApplied() ? "是" : "否")
                 .append("\n");
@@ -101,9 +107,20 @@ public class ChatAnswerVerificationService {
                     .append(source.getSourceIndex())
                     .append("】score=")
                     .append(source.getScore());
+            if (source.getBm25Score() != null) {
+                builder.append(", bm25Score=")
+                        .append(String.format("%.4f", source.getBm25Score()));
+            }
+            if (source.getHybridScore() != null) {
+                builder.append(", hybridScore=")
+                        .append(String.format("%.4f", source.getHybridScore()));
+            }
             if (source.getRerankScore() != null) {
                 builder.append(", rerankScore=")
                         .append(String.format("%.4f", source.getRerankScore()));
+            }
+            if (source.getRetrievalMode() != null) {
+                builder.append(", retrievalMode=").append(source.getRetrievalMode());
             }
             if (source.getMetadata() != null) {
                 builder.append(", metadata=").append(source.getMetadata());

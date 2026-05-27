@@ -60,6 +60,15 @@ public class MilvusClientFactory {
                 logger.info("collection '{}' 已存在", MilvusConstants.MILVUS_COLLECTION_NAME);
             }
 
+            if (!collectionExists(client, MilvusConstants.CHAT_MEMORY_COLLECTION_NAME)) {
+                logger.info("collection '{}' 不存在，正在创建...", MilvusConstants.CHAT_MEMORY_COLLECTION_NAME);
+                createVectorTextCollection(client, MilvusConstants.CHAT_MEMORY_COLLECTION_NAME, "Chat memory collection");
+                createVectorIndex(client, MilvusConstants.CHAT_MEMORY_COLLECTION_NAME);
+                logger.info("成功创建会话记忆 collection '{}'", MilvusConstants.CHAT_MEMORY_COLLECTION_NAME);
+            } else {
+                logger.info("collection '{}' 已存在", MilvusConstants.CHAT_MEMORY_COLLECTION_NAME);
+            }
+
             return client;
 
         } catch (Exception e) {
@@ -107,6 +116,13 @@ public class MilvusClientFactory {
      * 创建 biz collection
      */
     private void createBizCollection(MilvusServiceClient client) {
+        createVectorTextCollection(client, MilvusConstants.MILVUS_COLLECTION_NAME, "Business knowledge collection");
+    }
+
+    /**
+     * 创建通用文本向量 collection
+     */
+    private void createVectorTextCollection(MilvusServiceClient client, String collectionName, String description) {
         // 定义字段
         FieldType idField = FieldType.newBuilder()
                 .withName("id")
@@ -143,8 +159,8 @@ public class MilvusClientFactory {
 
         // 创建 collection
         CreateCollectionParam createParam = CreateCollectionParam.newBuilder()
-                .withCollectionName(MilvusConstants.MILVUS_COLLECTION_NAME)
-                .withDescription("Business knowledge collection")
+                .withCollectionName(collectionName)
+                .withDescription(description)
                 .withSchema(schema)
                 .withShardsNum(MilvusConstants.DEFAULT_SHARD_NUMBER)
                 .build();
@@ -159,9 +175,16 @@ public class MilvusClientFactory {
      * 为 collection 创建索引
      */
     private void createIndexes(MilvusServiceClient client) {
+        createVectorIndex(client, MilvusConstants.MILVUS_COLLECTION_NAME);
+    }
+
+    /**
+     * 为指定 collection 创建 vector 索引
+     */
+    private void createVectorIndex(MilvusServiceClient client, String collectionName) {
         // 为 vector 字段创建索引（FloatVector 使用 IVF_FLAT 和 L2 距离）
         CreateIndexParam vectorIndexParam = CreateIndexParam.newBuilder()
-                .withCollectionName(MilvusConstants.MILVUS_COLLECTION_NAME)
+                .withCollectionName(collectionName)
                 .withFieldName("vector")
                 .withIndexType(IndexType.IVF_FLAT)
                 .withMetricType(MetricType.L2)  // L2 距离（欧氏距离）
@@ -174,6 +197,6 @@ public class MilvusClientFactory {
             throw new RuntimeException("创建 vector 索引失败: " + response.getMessage());
         }
         
-        logger.info("成功为 vector 字段创建索引");
+        logger.info("成功为 collection '{}' 的 vector 字段创建索引", collectionName);
     }
 }

@@ -21,6 +21,11 @@ milvus:
 
 # Spring AI Alibaba DashScope 配置
 spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
   ai:
     dashscope:
       api-key: ${DASHSCOPE_API_KEY:your-api-key-here}  # 从环境变量读取或使用默认值
@@ -73,6 +78,15 @@ rag:
     enabled: true
     min-query-length: 12  # query 较长时触发轻量 rerank
     close-score-delta: 0.2  # top 结果分数接近时触发 rerank
+  bm25:
+    bootstrap-enabled: true  # 启动时从 uploads 目录加载轻量 BM25 索引
+  retrieval:
+    simple-mode: HYBRID  # 简单问题可选 VECTOR / BM25 / HYBRID
+    complex-mode: HYBRID # 复杂问题先混合召回候选，再触发 rerank
+    complex-min-length: 18
+    candidate-multiplier: 3
+    vector-weight: 0.65
+    bm25-weight: 0.35
   faithfulness:
     enabled: true
     verifier-agent-enabled: true  # 优先使用 VerifierAgent 校验答案忠实度，失败时回退本地规则
@@ -80,6 +94,17 @@ rag:
   chat-verification:
     enabled: true  # 普通聊天中，文档/排障类问题回答后触发 RAG sources 后置校验
     top-k: 3
+
+# Chat Memory 配置
+chat:
+  memory:
+    redis-enabled: true
+    key-prefix: onecall:session
+    max-pairs: 6
+    ttl-hours: 168  # 7 天
+    semantic-enabled: true  # 是否启用 Milvus 会话语义长期记忆
+    semantic-top-k: 3
+    semantic-max-answer-length: 1200
 
 # Prometheus 配置
 prometheus:

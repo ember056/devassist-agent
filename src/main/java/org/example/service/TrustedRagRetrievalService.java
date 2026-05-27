@@ -17,7 +17,10 @@ public class TrustedRagRetrievalService {
     private QueryPreprocessService queryPreprocessService;
 
     @Autowired
-    private VectorSearchService vectorSearchService;
+    private HybridRetrievalService hybridRetrievalService;
+
+    @Autowired
+    private QueryComplexityService queryComplexityService;
 
     @Autowired
     private RerankService rerankService;
@@ -26,15 +29,25 @@ public class TrustedRagRetrievalService {
         QueryPreprocessService.QueryPreprocessResult preprocessResult =
                 queryPreprocessService.preprocess(question);
 
-        List<VectorSearchService.SearchResult> rawResults =
-                vectorSearchService.searchSimilarDocuments(preprocessResult.finalQuery(), topK);
+        QueryComplexityService.QueryRoute route =
+                queryComplexityService.route(preprocessResult.finalQuery());
 
-        boolean rerankApplied = rerankService.shouldRerank(preprocessResult.finalQuery(), rawResults);
+        List<VectorSearchService.SearchResult> rawResults =
+                hybridRetrievalService.retrieve(
+                        preprocessResult.finalQuery(),
+                        topK,
+                        route.getRetrievalMode()
+                );
+
+        boolean rerankApplied = route.complex()
+                && rerankService.shouldRerank(preprocessResult.finalQuery(), rawResults);
         List<VectorSearchService.SearchResult> finalResults =
-                rerankService.rerankIfNeeded(preprocessResult.finalQuery(), rawResults);
+                rerankApplied
+                        ? rerankService.rerank(preprocessResult.finalQuery(), rawResults)
+                        : rawResults;
         assignSourceIndexes(finalResults);
 
-        return new TrustedRagResult(preprocessResult, finalResults, rerankApplied);
+        return new TrustedRagResult(preprocessResult, finalResults, rerankApplied, route);
     }
 
     private void assignSourceIndexes(List<VectorSearchService.SearchResult> results) {
@@ -48,15 +61,18 @@ public class TrustedRagRetrievalService {
         private final QueryPreprocessService.QueryPreprocessResult preprocess;
         private final List<VectorSearchService.SearchResult> results;
         private final boolean rerankApplied;
+        private final QueryComplexityService.QueryRoute route;
 
         public TrustedRagResult(
                 QueryPreprocessService.QueryPreprocessResult preprocess,
                 List<VectorSearchService.SearchResult> results,
-                boolean rerankApplied
+                boolean rerankApplied,
+                QueryComplexityService.QueryRoute route
         ) {
             this.preprocess = preprocess;
             this.results = results;
             this.rerankApplied = rerankApplied;
+            this.route = route;
         }
     }
 }

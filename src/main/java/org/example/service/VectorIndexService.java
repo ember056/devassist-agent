@@ -42,6 +42,9 @@ public class VectorIndexService {
     @Autowired
     private DocumentChunkService chunkService;
 
+    @Autowired
+    private KeywordSearchService keywordSearchService;
+
     @Value("${file.upload.path}")
     private String uploadPath;
 
@@ -142,7 +145,10 @@ public class VectorIndexService {
         List<DocumentChunk> chunks = chunkService.chunkDocument(content, path.toString());
         logger.info("文档分片完成: {} -> {} 个分片", filePath, chunks.size());
 
-        // 4. 为每个分片生成向量并插入 Milvus
+        // 4. 同步构建 BM25 关键词索引，用于混合召回
+        keywordSearchService.indexChunks(path.toString(), chunks);
+
+        // 5. 为每个分片生成向量并插入 Milvus
         for (int i = 0; i < chunks.size(); i++) {
             DocumentChunk chunk = chunks.get(i);
             

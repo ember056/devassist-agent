@@ -121,8 +121,17 @@ public class RagService {
             int sourceIndex = result.getSourceIndex() == null ? i + 1 : result.getSourceIndex();
             context.append("【参考资料 ").append(sourceIndex).append("】\n");
             context.append("score: ").append(result.getScore()).append("\n");
+            if (result.getBm25Score() != null) {
+                context.append("bm25Score: ").append(String.format("%.4f", result.getBm25Score())).append("\n");
+            }
+            if (result.getHybridScore() != null) {
+                context.append("hybridScore: ").append(String.format("%.4f", result.getHybridScore())).append("\n");
+            }
             if (result.getRerankScore() != null) {
                 context.append("rerankScore: ").append(String.format("%.4f", result.getRerankScore())).append("\n");
+            }
+            if (result.getRetrievalMode() != null) {
+                context.append("retrievalMode: ").append(result.getRetrievalMode()).append("\n");
             }
             if (result.getMetadata() != null) {
                 context.append("metadata: ").append(result.getMetadata()).append("\n");
@@ -148,6 +157,8 @@ public class RagService {
             "- 实际检索问题：%s\n" +
             "- Query Rewrite 是否采用：%s\n" +
             "- Rewrite 相似度：%.4f\n" +
+            "- Query 复杂度：%s\n" +
+            "- 召回模式：%s\n" +
             "- 是否触发 Rerank：%s\n\n" +
             "参考资料：\n%s\n" +
             "用户问题：%s\n\n" +
@@ -157,6 +168,8 @@ public class RagService {
             trustedRagResult.getPreprocess().finalQuery(),
             trustedRagResult.getPreprocess().rewriteAccepted() ? "是" : "否",
             trustedRagResult.getPreprocess().similarity(),
+            trustedRagResult.getRoute().getComplexity().name(),
+            trustedRagResult.getRoute().getRetrievalMode().name(),
             trustedRagResult.isRerankApplied() ? "是" : "否",
             context,
             question

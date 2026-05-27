@@ -751,6 +751,10 @@ class SuperBizAgentApp {
                                             this.highlightCodeBlocks(messageContent);
                                             this.scrollToBottom();
                                         }
+                                    } else if (sseMessage.type === 'session') {
+                                        if (sseMessage.data) {
+                                            this.sessionId = sseMessage.data;
+                                        }
                                     } else if (sseMessage.type === 'done') {
                                         console.log('[SSE调试] 收到done标记，流结束');
                                         this.handleStreamComplete(assistantMessageElement, fullResponse);

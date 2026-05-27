@@ -76,6 +76,8 @@ public class InternalDocsTools {
                     trustedRagResult.getPreprocess().rewrittenQuery(),
                     trustedRagResult.getPreprocess().similarity(),
                     trustedRagResult.getPreprocess().rewriteAccepted(),
+                    trustedRagResult.getRoute().getComplexity().name(),
+                    trustedRagResult.getRoute().getRetrievalMode().name(),
                     trustedRagResult.isRerankApplied(),
                     searchResults
             ));
@@ -97,6 +99,8 @@ public class InternalDocsTools {
             String rewrittenQuery,
             double rewriteSimilarity,
             boolean rewriteAccepted,
+            String queryComplexity,
+            String retrievalMode,
             boolean rerankApplied,
             List<VectorSearchService.SearchResult> results
     ) {

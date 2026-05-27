@@ -11,6 +11,11 @@ public class MilvusConstants {
      * Milvus 集合名称
      */
     public static final String MILVUS_COLLECTION_NAME = "biz";
+
+    /**
+     * 会话长期记忆集合名称
+     */
+    public static final String CHAT_MEMORY_COLLECTION_NAME = "chat_memory";
     
     /**
      * 向量维度（豆包 embedding 模型的维度）

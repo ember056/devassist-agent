@@ -104,6 +104,9 @@ public class VectorSearchService {
         private float score;
         private String metadata;
         private Double rerankScore;
+        private Double bm25Score;
+        private Double hybridScore;
+        private String retrievalMode;
         private Integer sourceIndex;
 
     }
