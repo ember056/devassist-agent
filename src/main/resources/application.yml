@@ -60,6 +60,10 @@ dashscope:
     key: ${DASHSCOPE_API_KEY:your-api-key-here}  # 从环境变量读取或使用默认值（用于自定义配置）
   embedding:
     model: text-embedding-v4  # 阿里云文本向量化模型
+    query-cache:
+      enabled: true
+      max-size: 10000
+      ttl-seconds: 1800
 
 # 文档分片配置
 document:
@@ -73,6 +77,8 @@ rag:
   model: "qwen3-max"  # 大语言模型名称
   query-rewrite:
     enabled: true
+    on-demand-enabled: true
+    min-trigger-length: 24
     min-similarity: 0.8  # 改写前后 query 的余弦相似度低于该值时回退原 query
   rerank:
     enabled: true
@@ -87,6 +93,10 @@ rag:
     candidate-multiplier: 3
     vector-weight: 0.65
     bm25-weight: 0.35
+    cache:
+      enabled: true
+      max-size: 2000
+      ttl-seconds: 300
   faithfulness:
     enabled: true
     verifier-agent-enabled: true  # 优先使用 VerifierAgent 校验答案忠实度，失败时回退本地规则

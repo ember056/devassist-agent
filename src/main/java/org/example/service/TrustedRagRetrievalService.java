@@ -2,17 +2,17 @@ package org.example.service;
 
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * 可信 RAG 检索编排。
- * 统一串起 query rewrite 质量过滤、向量召回和轻量 rerank。
- */
 @Service
 public class TrustedRagRetrievalService {
-
     @Autowired
     private QueryPreprocessService queryPreprocessService;
 
@@ -25,7 +25,26 @@ public class TrustedRagRetrievalService {
     @Autowired
     private RerankService rerankService;
 
+    @Value("${rag.retrieval.cache.enabled:true}")
+    private boolean retrievalCacheEnabled;
+
+    @Value("${rag.retrieval.cache.max-size:2000}")
+    private int retrievalCacheMaxSize;
+
+    @Value("${rag.retrieval.cache.ttl-seconds:300}")
+    private long retrievalCacheTtlSeconds;
+
+    private final Map<String, CacheEntry<TrustedRagResult>> retrievalCache = new ConcurrentHashMap<>();
+
     public TrustedRagResult retrieve(String question, int topK) {
+        String cacheKey = cacheKey(question, topK);
+        if (retrievalCacheEnabled) {
+            CacheEntry<TrustedRagResult> cached = retrievalCache.get(cacheKey);
+            if (cached != null && !cached.expired()) {
+                return copyResult(cached.value());
+            }
+        }
+
         QueryPreprocessService.QueryPreprocessResult preprocessResult =
                 queryPreprocessService.preprocess(question);
 
@@ -47,12 +66,68 @@ public class TrustedRagRetrievalService {
                         : rawResults;
         assignSourceIndexes(finalResults);
 
-        return new TrustedRagResult(preprocessResult, finalResults, rerankApplied, route);
+        TrustedRagResult result = new TrustedRagResult(preprocessResult, finalResults, rerankApplied, route);
+        if (retrievalCacheEnabled) {
+            putCache(cacheKey, result);
+        }
+        return copyResult(result);
     }
 
     private void assignSourceIndexes(List<VectorSearchService.SearchResult> results) {
         for (int i = 0; i < results.size(); i++) {
             results.get(i).setSourceIndex(i + 1);
+        }
+    }
+
+    private void putCache(String key, TrustedRagResult result) {
+        if (retrievalCacheMaxSize > 0 && retrievalCache.size() >= retrievalCacheMaxSize) {
+            retrievalCache.clear();
+        }
+        retrievalCache.put(key, new CacheEntry<>(copyResult(result), retrievalCacheTtlSeconds));
+    }
+
+    private String cacheKey(String question, int topK) {
+        String normalized = question == null ? "" : question.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+        return normalized + "|topK=" + topK;
+    }
+
+    private TrustedRagResult copyResult(TrustedRagResult result) {
+        List<VectorSearchService.SearchResult> copied = new ArrayList<>();
+        for (VectorSearchService.SearchResult item : result.getResults()) {
+            copied.add(copySearchResult(item));
+        }
+        return new TrustedRagResult(result.getPreprocess(), copied, result.isRerankApplied(), result.getRoute());
+    }
+
+    private VectorSearchService.SearchResult copySearchResult(VectorSearchService.SearchResult item) {
+        VectorSearchService.SearchResult copy = new VectorSearchService.SearchResult();
+        copy.setId(item.getId());
+        copy.setContent(item.getContent());
+        copy.setScore(item.getScore());
+        copy.setMetadata(item.getMetadata());
+        copy.setRerankScore(item.getRerankScore());
+        copy.setBm25Score(item.getBm25Score());
+        copy.setHybridScore(item.getHybridScore());
+        copy.setRetrievalMode(item.getRetrievalMode());
+        copy.setSourceIndex(item.getSourceIndex());
+        return copy;
+    }
+
+    private static class CacheEntry<T> {
+        private final T value;
+        private final long expiresAtMillis;
+
+        CacheEntry(T value, long ttlSeconds) {
+            this.value = value;
+            this.expiresAtMillis = System.currentTimeMillis() + Math.max(1, ttlSeconds) * 1000;
+        }
+
+        T value() {
+            return value;
+        }
+
+        boolean expired() {
+            return System.currentTimeMillis() >= expiresAtMillis;
         }
     }
 

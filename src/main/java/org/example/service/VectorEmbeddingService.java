@@ -1,30 +1,28 @@
 package org.example.service;
 
 import com.alibaba.dashscope.embeddings.TextEmbedding;
+import com.alibaba.dashscope.embeddings.TextEmbeddingOutput;
 import com.alibaba.dashscope.embeddings.TextEmbeddingParam;
 import com.alibaba.dashscope.embeddings.TextEmbeddingResult;
-import com.alibaba.dashscope.embeddings.TextEmbeddingOutput;
 import com.alibaba.dashscope.embeddings.TextEmbeddingResultItem;
 import com.alibaba.dashscope.exception.NoApiKeyException;
 import com.alibaba.dashscope.utils.Constants;
+import jakarta.annotation.PostConstruct;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * 向量嵌入服务
- * 使用阿里云 DashScope Text Embedding API
- */
 @Service
 public class VectorEmbeddingService {
-
     private static final Logger logger = LoggerFactory.getLogger(VectorEmbeddingService.class);
 
     @Value("${dashscope.api.key}")
@@ -33,203 +31,115 @@ public class VectorEmbeddingService {
     @Value("${dashscope.embedding.model}")
     private String model;
 
+    @Value("${dashscope.embedding.query-cache.enabled:true}")
+    private boolean queryCacheEnabled;
+
+    @Value("${dashscope.embedding.query-cache.max-size:10000}")
+    private int queryCacheMaxSize;
+
+    @Value("${dashscope.embedding.query-cache.ttl-seconds:1800}")
+    private long queryCacheTtlSeconds;
+
     private TextEmbedding textEmbedding;
+    private final Map<String, CacheEntry<List<Float>>> queryVectorCache = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void init() {
-        // 验证 API Key
         if (apiKey == null || apiKey.trim().isEmpty() || apiKey.equals("your-api-key-here")) {
-            logger.error("API Key 未正确配置！当前值: {}", apiKey);
-            throw new IllegalStateException("请设置环境变量 DASHSCOPE_API_KEY 或在 application.yml 中配置正确的 API Key");
+            throw new IllegalStateException("Please configure DASHSCOPE_API_KEY before starting the service.");
         }
-        
-        // 打印 API Key 前缀用于调试（不打印完整 Key 保证安全）
-        String maskedKey = apiKey.length() > 8 ? 
-            apiKey.substring(0, 8) + "..." + apiKey.substring(apiKey.length() - 4) : 
-            "***";
-        logger.info("API Key 已加载: {}", maskedKey);
-        
-        // 设置全局 API Key（确保设置成功）
+
         Constants.apiKey = apiKey;
-        
-        // 验证 API Key 是否设置成功
-        if (Constants.apiKey == null || Constants.apiKey.isEmpty()) {
-            logger.error("Constants.apiKey 设置失败！");
-            throw new IllegalStateException("API Key 设置到 Constants 失败");
-        }
-        
-        logger.info("Constants.apiKey 已设置: {}", Constants.apiKey.substring(0, Math.min(8, Constants.apiKey.length())) + "...");
-        
-        // 创建 TextEmbedding 实例
         textEmbedding = new TextEmbedding();
-        
-        logger.info("阿里云 DashScope Embedding 服务初始化完成，模型: {}", model);
+        logger.info(
+                "DashScope embedding initialized. model={}, queryCacheEnabled={}, queryCacheMaxSize={}, queryCacheTtlSeconds={}",
+                model,
+                queryCacheEnabled,
+                queryCacheMaxSize,
+                queryCacheTtlSeconds
+        );
     }
 
-    /**
-     * 生成向量嵌入
-     * 调用阿里云 DashScope Text Embedding API
-     * 
-     * @param content 文本内容
-     * @return 向量嵌入（浮点数列表）
-     */
     public List<Float> generateEmbedding(String content) {
         try {
             if (content == null || content.trim().isEmpty()) {
-                logger.warn("内容为空，无法生成向量");
-                throw new IllegalArgumentException("内容不能为空");
+                throw new IllegalArgumentException("Embedding content cannot be empty");
             }
 
-            logger.debug("开始生成向量嵌入, 内容长度: {} 字符", content.length());
-            
-            // 确保 API Key 已设置（防止被其他地方覆盖）
-            if (Constants.apiKey == null || Constants.apiKey.isEmpty()) {
-                logger.warn("检测到 Constants.apiKey 为空，重新设置");
-                Constants.apiKey = apiKey;
-            }
-            
-            logger.debug("调用 API 前 Constants.apiKey: {}", 
-                Constants.apiKey != null ? Constants.apiKey.substring(0, Math.min(8, Constants.apiKey.length())) + "..." : "null");
-
-            // 构建请求参数
+            ensureApiKey();
             TextEmbeddingParam param = TextEmbeddingParam
                     .builder()
                     .model(model)
                     .texts(Collections.singletonList(content))
                     .build();
 
-            // 调用 API
             TextEmbeddingResult result = textEmbedding.call(param);
-
-            // 检查结果
-            List<Float> floatEmbedding = getFloats(result);
-
-            logger.info("成功生成向量嵌入, 内容长度: {} 字符, 向量维度: {}", 
-                content.length(), floatEmbedding.size());
-
-            return floatEmbedding;
-
+            List<Float> embedding = getFloats(result);
+            logger.info("Generated embedding. contentLength={}, dimensions={}", content.length(), embedding.size());
+            return embedding;
         } catch (NoApiKeyException e) {
-            logger.error("API Key 未设置或无效", e);
-            throw new RuntimeException("API Key 未设置，请配置 dashscope.api.key", e);
+            throw new RuntimeException("DashScope API key is missing or invalid", e);
         } catch (Exception e) {
-            logger.error("生成向量嵌入失败, 内容长度: {}", content != null ? content.length() : 0, e);
-            throw new RuntimeException("生成向量嵌入失败: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to generate embedding: " + e.getMessage(), e);
         }
     }
 
-    @NotNull
-    private static List<Float> getFloats(TextEmbeddingResult result) {
-        if (result == null || result.getOutput() == null || result.getOutput().getEmbeddings() == null) {
-            throw new RuntimeException("DashScope API 返回空结果");
-        }
-
-        TextEmbeddingOutput output = result.getOutput();
-        List<TextEmbeddingResultItem> embeddings = output.getEmbeddings();
-
-        if (embeddings.isEmpty()) {
-            throw new RuntimeException("DashScope API 返回空向量列表");
-        }
-
-        // 获取第一个文本的向量
-        List<Double> embeddingDoubles = embeddings.get(0).getEmbedding();
-
-        // 转换为 List<Float>
-        List<Float> floatEmbedding = new ArrayList<>(embeddingDoubles.size());
-        for (Double value : embeddingDoubles) {
-            floatEmbedding.add(value.floatValue());
-        }
-        return floatEmbedding;
-    }
-
-    /**
-     * 批量生成向量嵌入
-     * 
-     * @param contents 文本内容列表
-     * @return 向量嵌入列表
-     */
     public List<List<Float>> generateEmbeddings(List<String> contents) {
         try {
             if (contents == null || contents.isEmpty()) {
-                logger.warn("内容列表为空，无法生成向量");
                 return Collections.emptyList();
             }
 
-            logger.info("开始批量生成向量嵌入, 数量: {}", contents.size());
-            
-            // 确保 API Key 已设置
-            if (Constants.apiKey == null || Constants.apiKey.isEmpty()) {
-                logger.warn("检测到 Constants.apiKey 为空，重新设置");
-                Constants.apiKey = apiKey;
-            }
-
-            // 构建请求参数 - 批量输入
+            ensureApiKey();
             TextEmbeddingParam param = TextEmbeddingParam
                     .builder()
                     .model(model)
                     .texts(contents)
                     .build();
 
-            // 调用 API
             TextEmbeddingResult result = textEmbedding.call(param);
-
-            // 检查结果
             if (result == null || result.getOutput() == null || result.getOutput().getEmbeddings() == null) {
-                throw new RuntimeException("批量 DashScope API 返回空结果");
+                throw new RuntimeException("DashScope returned empty batch embedding result");
             }
 
-            List<TextEmbeddingResultItem> embeddingItems = result.getOutput().getEmbeddings();
-            
-            if (embeddingItems.isEmpty()) {
-                throw new RuntimeException("批量 DashScope API 返回空向量列表");
-            }
-
-            // 转换结果
             List<List<Float>> embeddings = new ArrayList<>();
-            for (TextEmbeddingResultItem item : embeddingItems) {
-                List<Double> embeddingDoubles = item.getEmbedding();
-                List<Float> embedding = new ArrayList<>(embeddingDoubles.size());
-                for (Double value : embeddingDoubles) {
-                    embedding.add(value.floatValue());
-                }
-                embeddings.add(embedding);
+            for (TextEmbeddingResultItem item : result.getOutput().getEmbeddings()) {
+                embeddings.add(toFloatList(item.getEmbedding()));
             }
 
-            logger.info("成功批量生成向量嵌入, 数量: {}, 维度: {}", 
-                embeddings.size(), 
-                embeddings.isEmpty() ? 0 : embeddings.get(0).size());
-
+            logger.info("Generated batch embeddings. count={}", embeddings.size());
             return embeddings;
-
         } catch (NoApiKeyException e) {
-            logger.error("批量调用时 API Key 未设置或无效", e);
-            throw new RuntimeException("API Key 未设置，请配置 dashscope.api.key", e);
+            throw new RuntimeException("DashScope API key is missing or invalid", e);
         } catch (Exception e) {
-            logger.error("批量生成向量嵌入失败", e);
-            throw new RuntimeException("批量生成向量嵌入失败: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to generate batch embeddings: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * 生成查询向量
-     * 
-     * @param query 查询文本
-     * @return 向量嵌入
-     */
     public List<Float> generateQueryVector(String query) {
-        return generateEmbedding(query);
+        if (!queryCacheEnabled) {
+            return generateEmbedding(query);
+        }
+
+        String cacheKey = normalizeQuery(query);
+        if (cacheKey.isBlank()) {
+            return generateEmbedding(query);
+        }
+
+        CacheEntry<List<Float>> cached = queryVectorCache.get(cacheKey);
+        if (cached != null && !cached.expired()) {
+            logger.debug("Query embedding cache hit. key={}", cacheKey);
+            return new ArrayList<>(cached.value());
+        }
+
+        List<Float> vector = generateEmbedding(query);
+        putQueryVector(cacheKey, vector);
+        return vector;
     }
 
-    /**
-     * 计算两个向量的余弦相似度
-     * 
-     * @param vector1 向量1
-     * @param vector2 向量2
-     * @return 余弦相似度 [-1, 1]
-     */
     public float calculateCosineSimilarity(List<Float> vector1, List<Float> vector2) {
         if (vector1.size() != vector2.size()) {
-            throw new IllegalArgumentException("向量维度不匹配");
+            throw new IllegalArgumentException("Vector dimensions do not match");
         }
 
         float dotProduct = 0.0f;
@@ -243,5 +153,64 @@ public class VectorEmbeddingService {
         }
 
         return dotProduct / (float) (Math.sqrt(norm1) * Math.sqrt(norm2));
+    }
+
+    @NotNull
+    private static List<Float> getFloats(TextEmbeddingResult result) {
+        if (result == null || result.getOutput() == null || result.getOutput().getEmbeddings() == null) {
+            throw new RuntimeException("DashScope returned empty embedding result");
+        }
+
+        TextEmbeddingOutput output = result.getOutput();
+        List<TextEmbeddingResultItem> embeddings = output.getEmbeddings();
+        if (embeddings.isEmpty()) {
+            throw new RuntimeException("DashScope returned no embeddings");
+        }
+
+        return toFloatList(embeddings.get(0).getEmbedding());
+    }
+
+    private static List<Float> toFloatList(List<Double> embeddingDoubles) {
+        List<Float> result = new ArrayList<>(embeddingDoubles.size());
+        for (Double value : embeddingDoubles) {
+            result.add(value.floatValue());
+        }
+        return result;
+    }
+
+    private void putQueryVector(String cacheKey, List<Float> vector) {
+        if (queryCacheMaxSize > 0 && queryVectorCache.size() >= queryCacheMaxSize) {
+            queryVectorCache.clear();
+            logger.info("Query embedding cache cleared after reaching max size: {}", queryCacheMaxSize);
+        }
+        queryVectorCache.put(cacheKey, new CacheEntry<>(List.copyOf(vector), queryCacheTtlSeconds));
+    }
+
+    private String normalizeQuery(String query) {
+        return query == null ? "" : query.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    private void ensureApiKey() {
+        if (Constants.apiKey == null || Constants.apiKey.isEmpty()) {
+            Constants.apiKey = apiKey;
+        }
+    }
+
+    private static class CacheEntry<T> {
+        private final T value;
+        private final long expiresAtMillis;
+
+        CacheEntry(T value, long ttlSeconds) {
+            this.value = value;
+            this.expiresAtMillis = System.currentTimeMillis() + Math.max(1, ttlSeconds) * 1000;
+        }
+
+        T value() {
+            return value;
+        }
+
+        boolean expired() {
+            return System.currentTimeMillis() >= expiresAtMillis;
+        }
     }
 }
