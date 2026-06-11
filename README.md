@@ -16,6 +16,7 @@ The project is platform-neutral. A ticket can come from an issue tracker, chat b
 - `AIOps Workflow`：围绕故障假设图、证据采集、置信度更新和剪枝。
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"nodeSpacing": 28, "rankSpacing": 34}}}%%
 flowchart TD
     U["User / Web UI / Internal system<br/>用户、前端或内部系统"] --> API["ChatController<br/>REST + SSE 接口"]
 
@@ -82,6 +83,7 @@ flowchart TD
 普通对话入口会先加载短期记忆和语义记忆，再构造系统提示词。需要外部信息时，Agent 会调用文档、指标、日志等工具，最后把用户和助手消息写回记忆系统。
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "sequence": {"messageFontSize": 12, "actorFontSize": 12, "noteFontSize": 12}}}%%
 sequenceDiagram
     participant User as User / 用户
     participant API as ChatController
@@ -105,6 +107,7 @@ sequenceDiagram
 RAG 查询链路的核心优化在前半段：先判断是否需要 query rewrite，再查 retrieval cache；未命中时才进入 embedding cache、向量检索、BM25、重排和可信校验。
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"nodeSpacing": 24, "rankSpacing": 30}}}%%
 flowchart TD
     Q["User question<br/>用户问题"] --> PRE["Query preprocess<br/>查询预处理"]
     PRE --> GATE{"Need rewrite?<br/>是否需要改写"}
@@ -143,6 +146,7 @@ flowchart TD
 AIOps 链路不会只依赖提示词让模型自由规划，而是在代码层维护故障假设图。每个候选根因都会绑定证据，证据再通过规则映射成置信度更新，最后经过 Top-K 和矛盾证据剪枝输出诊断报告。
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"nodeSpacing": 26, "rankSpacing": 32}}}%%
 flowchart TD
     REQ["Incident request or active alert<br/>故障请求或当前告警"] --> INIT["Create initial hypotheses<br/>生成初始故障假设"]
     INIT --> COLLECT["Collect evidence<br/>采集证据"]
