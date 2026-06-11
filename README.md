@@ -105,19 +105,34 @@ sequenceDiagram
 RAG 查询链路的核心优化在前半段：先判断是否需要 query rewrite，再查 retrieval cache；未命中时才进入 embedding cache、向量检索、BM25、重排和可信校验。
 
 ```mermaid
-flowchart LR
+flowchart TD
     Q["User question<br/>用户问题"] --> PRE["Query preprocess<br/>查询预处理"]
-    PRE --> GATE["On-demand rewrite gate<br/>按需改写判断"]
-    GATE --> ROUTE["Complexity route<br/>复杂度路由"]
-    ROUTE --> RCACHE["Retrieval cache<br/>检索结果缓存"]
-    RCACHE --> HYBRID["Hybrid retrieval<br/>混合召回"]
-    HYBRID --> ECACHE["Query embedding cache<br/>查询向量缓存"]
-    ECACHE --> VEC["Milvus vector search<br/>向量检索"]
-    HYBRID --> BM25["Local BM25 search<br/>关键词检索"]
+    PRE --> GATE{"Need rewrite?<br/>是否需要改写"}
+    GATE -- "No / 否" --> FINAL["Final query<br/>最终查询"]
+    GATE -- "Yes / 是" --> REWRITE["LLM rewrite<br/>大模型改写"]
+    REWRITE --> GUARD["Similarity guard<br/>语义相似度保护"]
+    GUARD --> FINAL
+
+    FINAL --> ROUTE["Complexity route<br/>复杂度路由"]
+    ROUTE --> RCACHE{"Retrieval cache hit?<br/>检索缓存命中"}
+    RCACHE -- "Hit / 命中" --> CTX["Build context<br/>构造上下文"]
+    RCACHE -- "Miss / 未命中" --> HYBRID["Hybrid retrieval<br/>混合召回"]
+
+    subgraph Retrieval["Retrieval stage / 召回阶段"]
+        direction LR
+        HYBRID --> ECACHE{"Embedding cache hit?<br/>向量缓存命中"}
+        ECACHE -- "Hit / 命中" --> VEC["Milvus vector search<br/>向量检索"]
+        ECACHE -- "Miss / 未命中" --> EMB["DashScope embedding<br/>生成查询向量"]
+        EMB --> VEC
+        HYBRID --> BM25["Local BM25 search<br/>关键词检索"]
+    end
+
     VEC --> MERGE["Score merge<br/>分数融合"]
     BM25 --> MERGE
     MERGE --> RERANK["Optional rerank<br/>按需重排"]
-    RERANK --> CTX["Build context<br/>构造上下文"]
+    RERANK --> SAVE["Update retrieval cache<br/>写入检索缓存"]
+    SAVE --> CTX
+
     CTX --> LLM["DashScope generation<br/>模型生成"]
     LLM --> FAITH["Faithfulness check<br/>忠实度校验"]
     FAITH --> OUT["Answer with sources<br/>带来源回答"]
