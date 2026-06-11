@@ -19,7 +19,7 @@ milvus:
   database: default
   timeout: 10000
 
-# Spring AI Alibaba DashScope 配置
+# Spring AI Alibaba DashScope 配置。
 spring:
   data:
     redis:
@@ -28,19 +28,18 @@ spring:
       timeout: 2s
   ai:
     dashscope:
-      api-key: ${DASHSCOPE_API_KEY:your-api-key-here}  # 从环境变量读取或使用默认值
+      api-key: ${DASHSCOPE_API_KEY:your-api-key-here}
       chat:
         options:
-          timeout: 180000  # 超时时间180秒（3分钟）
+          # DashScope 对话请求超时时间，单位毫秒。
+          timeout: 180000
       retry:
-        max-attempts: 3  # 最大重试次数
+        max-attempts: 3
         backoff:
-          initial-interval: 2000  # 初始重试间隔2秒
-          multiplier: 2  # 重试间隔倍数
-          max-interval: 10000  # 最大重试间隔10秒
-    
-    # Spring AI MCP 客户端配置
-    # 默认关闭；如需接入外部 MCP 服务，请通过环境变量显式开启并配置 endpoint
+          initial-interval: 2000
+          multiplier: 2
+          max-interval: 10000
+    # MCP 客户端默认关闭。需要接入外部 MCP 工具时，通过环境变量显式开启。
     mcp:
       client:
         enabled: ${MCP_CLIENT_ENABLED:false}
@@ -54,41 +53,41 @@ spring:
               url: ${TENCENT_MCP_URL:https://mcp-api.tencent-cloud.com}
               sse-endpoint: ${TENCENT_MCP_SSE_ENDPOINT:/sse/your-endpoint}
 
-# 阿里云 DashScope Embedding API 配置
+# DashScope API 与 embedding 配置。
 dashscope:
   api:
-    key: ${DASHSCOPE_API_KEY:your-api-key-here}  # 从环境变量读取或使用默认值（用于自定义配置）
+    key: ${DASHSCOPE_API_KEY:your-api-key-here}
   embedding:
-    model: text-embedding-v4  # 阿里云文本向量化模型
+    model: text-embedding-v4
     query-cache:
       enabled: true
       max-size: 10000
       ttl-seconds: 1800
 
-# 文档分片配置
+# 文档分片配置。
 document:
   chunk:
-    max-size: 800  # 每个分片最大字符数
-    overlap: 100   # 分片之间的重叠字符数
+    max-size: 800
+    overlap: 100
 
-# RAG 配置
+# RAG 配置。
 rag:
-  top-k: 3  # 检索返回的最相似文档数量
-  model: "qwen3-max"  # 大语言模型名称
+  top-k: 3
+  model: "qwen3-max"
   query-rewrite:
     enabled: true
     on-demand-enabled: true
     min-trigger-length: 24
-    min-similarity: 0.8  # 改写前后 query 的余弦相似度低于该值时回退原 query
+    min-similarity: 0.8
   rerank:
     enabled: true
-    min-query-length: 12  # query 较长时触发轻量 rerank
-    close-score-delta: 0.2  # top 结果分数接近时触发 rerank
+    min-query-length: 12
+    close-score-delta: 0.2
   bm25:
-    bootstrap-enabled: true  # 启动时从 uploads 目录加载轻量 BM25 索引
+    bootstrap-enabled: true
   retrieval:
-    simple-mode: HYBRID  # 简单问题可选 VECTOR / BM25 / HYBRID
-    complex-mode: HYBRID # 复杂问题先混合召回候选，再触发 rerank
+    simple-mode: HYBRID
+    complex-mode: HYBRID
     complex-min-length: 18
     candidate-multiplier: 3
     vector-weight: 0.65
@@ -99,29 +98,29 @@ rag:
       ttl-seconds: 300
   faithfulness:
     enabled: true
-    verifier-agent-enabled: true  # 优先使用 VerifierAgent 校验答案忠实度，失败时回退本地规则
-    min-coverage: 0.2  # 答案关键词被参考资料覆盖的最低比例
+    verifier-agent-enabled: true
+    min-coverage: 0.2
   chat-verification:
-    enabled: true  # 普通聊天中，文档/排障类问题回答后触发 RAG sources 后置校验
+    enabled: true
     top-k: 3
 
-# Chat Memory 配置
+# 聊天记忆配置。
 chat:
   memory:
     redis-enabled: true
     key-prefix: onecall:session
     max-pairs: 6
-    ttl-hours: 168  # 7 天
-    semantic-enabled: true  # 是否启用 Milvus 会话语义长期记忆
+    ttl-hours: 168
+    semantic-enabled: true
     semantic-top-k: 3
     semantic-max-answer-length: 1200
 
-# Prometheus 配置
+# Prometheus 配置。
 prometheus:
   base-url: http://localhost:9090
-  timeout: 10  # 超时时间（秒）
-  mock-enabled: false  # 是否启用 Mock 模式（用于测试）
+  timeout: 10
+  mock-enabled: false
 
-# CLS 云日志服务配置
+# 云日志服务配置。
 cls:
-  mock-enabled: false  # 是否启用 Mock 模式（用于测试，设为 true 返回与告警关联的模拟日志数据）
+  mock-enabled: false

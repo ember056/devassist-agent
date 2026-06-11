@@ -1,18 +1,11 @@
 package org.example.controller;
 
-import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
-import com.alibaba.cloud.ai.graph.NodeOutput;
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.alibaba.cloud.ai.graph.streaming.OutputType;
-import com.alibaba.cloud.ai.graph.streaming.StreamingOutput;
 import lombok.Getter;
 import lombok.Setter;
 import org.example.dto.AIOpsRequest;
 import org.example.service.AiOpsService;
-import org.example.service.ChatAnswerVerificationService;
+import org.example.service.ChatApplicationService;
 import org.example.service.ChatMemoryService;
-import org.example.service.ChatService;
 import org.example.service.aiops.AiOpsAnalysisResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,11 +18,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import reactor.core.publisher.Flux;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -39,21 +29,15 @@ public class ChatController {
     private static final Logger logger = LoggerFactory.getLogger(ChatController.class);
 
     private final AiOpsService aiOpsService;
-    private final ChatService chatService;
-    private final ChatAnswerVerificationService chatAnswerVerificationService;
-    private final ChatMemoryService chatMemoryService;
+    private final ChatApplicationService chatApplicationService;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     public ChatController(
             AiOpsService aiOpsService,
-            ChatService chatService,
-            ChatAnswerVerificationService chatAnswerVerificationService,
-            ChatMemoryService chatMemoryService
+            ChatApplicationService chatApplicationService
     ) {
         this.aiOpsService = aiOpsService;
-        this.chatService = chatService;
-        this.chatAnswerVerificationService = chatAnswerVerificationService;
-        this.chatMemoryService = chatMemoryService;
+        this.chatApplicationService = chatApplicationService;
     }
 
     @PostMapping("/chat")
@@ -63,21 +47,9 @@ public class ChatController {
                 return ResponseEntity.ok(ApiResponse.success(ChatResponse.error("Question cannot be empty")));
             }
 
-            String sessionId = chatMemoryService.resolveSessionId(request.getId());
-            List<Map<String, String>> history = chatMemoryService.getHistory(sessionId);
-            history.addAll(chatMemoryService.getRelevantSemanticMemories(sessionId, request.getQuestion()));
-
-            DashScopeApi dashScopeApi = chatService.createDashScopeApi();
-            DashScopeChatModel chatModel = chatService.createStandardChatModel(dashScopeApi);
-            chatService.logAvailableTools();
-
-            String systemPrompt = chatService.buildSystemPrompt(history);
-            ReactAgent agent = chatService.createReactAgent(chatModel, systemPrompt);
-            String fullAnswer = chatService.executeChat(agent, request.getQuestion());
-            fullAnswer = chatAnswerVerificationService.verifyIfNeeded(request.getQuestion(), fullAnswer);
-
-            chatMemoryService.addMessage(sessionId, request.getQuestion(), fullAnswer);
-            return ResponseEntity.ok(ApiResponse.success(ChatResponse.success(sessionId, fullAnswer)));
+            ChatApplicationService.ChatResult result =
+                    chatApplicationService.chat(request.getId(), request.getQuestion());
+            return ResponseEntity.ok(ApiResponse.success(ChatResponse.success(result.sessionId(), result.answer())));
         } catch (Exception e) {
             logger.error("Chat request failed", e);
             return ResponseEntity.ok(ApiResponse.success(ChatResponse.error(e.getMessage())));
@@ -91,7 +63,7 @@ public class ChatController {
                 return ResponseEntity.ok(ApiResponse.error("Session id cannot be empty"));
             }
 
-            boolean cleared = chatMemoryService.clearHistory(request.getId());
+            boolean cleared = chatApplicationService.clearHistory(request.getId());
             return cleared
                     ? ResponseEntity.ok(ApiResponse.success("Chat history cleared"))
                     : ResponseEntity.ok(ApiResponse.error("Session does not exist"));
@@ -112,26 +84,10 @@ public class ChatController {
 
         executor.execute(() -> {
             try {
-                String sessionId = chatMemoryService.resolveSessionId(request.getId());
-                emitter.send(SseEmitter.event().name("message")
-                        .data(SseMessage.session(sessionId), MediaType.APPLICATION_JSON));
-
-                List<Map<String, String>> history = chatMemoryService.getHistory(sessionId);
-                history.addAll(chatMemoryService.getRelevantSemanticMemories(sessionId, request.getQuestion()));
-
-                DashScopeApi dashScopeApi = chatService.createDashScopeApi();
-                DashScopeChatModel chatModel = chatService.createStandardChatModel(dashScopeApi);
-                chatService.logAvailableTools();
-
-                String systemPrompt = chatService.buildSystemPrompt(history);
-                ReactAgent agent = chatService.createReactAgent(chatModel, systemPrompt);
-                StringBuilder fullAnswerBuilder = new StringBuilder();
-                Flux<NodeOutput> stream = agent.stream(request.getQuestion());
-
-                stream.subscribe(
-                        output -> handleStreamOutput(output, fullAnswerBuilder, emitter),
-                        error -> handleStreamError(error, emitter),
-                        () -> handleStreamComplete(request, sessionId, fullAnswerBuilder, emitter)
+                chatApplicationService.streamChat(
+                        request.getId(),
+                        request.getQuestion(),
+                        new SseChatStreamHandler(emitter)
                 );
             } catch (Exception e) {
                 logger.error("Chat stream initialization failed", e);
@@ -175,7 +131,7 @@ public class ChatController {
     @GetMapping("/chat/session/{sessionId}")
     public ResponseEntity<ApiResponse<SessionInfoResponse>> getSessionInfo(@PathVariable String sessionId) {
         try {
-            ChatMemoryService.SessionSummary sessionSummary = chatMemoryService.getSessionSummary(sessionId);
+            ChatMemoryService.SessionSummary sessionSummary = chatApplicationService.getSessionSummary(sessionId);
             if (sessionSummary == null) {
                 return ResponseEntity.ok(ApiResponse.error("Session does not exist"));
             }
@@ -189,57 +145,6 @@ public class ChatController {
         } catch (Exception e) {
             logger.error("Get session info failed", e);
             return ResponseEntity.ok(ApiResponse.error(e.getMessage()));
-        }
-    }
-
-    private void handleStreamOutput(NodeOutput output, StringBuilder fullAnswerBuilder, SseEmitter emitter) {
-        try {
-            if (output instanceof StreamingOutput streamingOutput) {
-                OutputType type = streamingOutput.getOutputType();
-                if (type == OutputType.AGENT_MODEL_STREAMING) {
-                    String chunk = streamingOutput.message().getText();
-                    if (chunk != null && !chunk.isEmpty()) {
-                        fullAnswerBuilder.append(chunk);
-                        emitter.send(SseEmitter.event().name("message")
-                                .data(SseMessage.content(chunk), MediaType.APPLICATION_JSON));
-                    }
-                }
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void handleStreamError(Throwable error, SseEmitter emitter) {
-        logger.error("ReactAgent stream failed", error);
-        sendError(emitter, error.getMessage());
-        emitter.completeWithError(error);
-    }
-
-    private void handleStreamComplete(
-            ChatRequest request,
-            String sessionId,
-            StringBuilder fullAnswerBuilder,
-            SseEmitter emitter
-    ) {
-        try {
-            String fullAnswer = fullAnswerBuilder.toString();
-            fullAnswer = chatAnswerVerificationService.verifyIfNeeded(request.getQuestion(), fullAnswer);
-
-            String appendedVerification = fullAnswer.substring(
-                    Math.min(fullAnswerBuilder.length(), fullAnswer.length())
-            );
-            if (!appendedVerification.isEmpty()) {
-                emitter.send(SseEmitter.event().name("message")
-                        .data(SseMessage.content(appendedVerification), MediaType.APPLICATION_JSON));
-            }
-
-            chatMemoryService.addMessage(sessionId, request.getQuestion(), fullAnswer);
-            emitter.send(SseEmitter.event().name("message")
-                    .data(SseMessage.done(), MediaType.APPLICATION_JSON));
-            emitter.complete();
-        } catch (IOException e) {
-            emitter.completeWithError(e);
         }
     }
 
@@ -270,6 +175,45 @@ public class ChatController {
                     .data(SseMessage.error(errorMessage), MediaType.APPLICATION_JSON));
         } catch (IOException e) {
             logger.error("Failed to send SSE error message", e);
+        }
+    }
+
+    private class SseChatStreamHandler implements ChatApplicationService.StreamHandler {
+        private final SseEmitter emitter;
+
+        private SseChatStreamHandler(SseEmitter emitter) {
+            this.emitter = emitter;
+        }
+
+        @Override
+        public void onSession(String sessionId) {
+            send(SseMessage.session(sessionId));
+        }
+
+        @Override
+        public void onContent(String chunk) {
+            send(SseMessage.content(chunk));
+        }
+
+        @Override
+        public void onDone() {
+            send(SseMessage.done());
+            emitter.complete();
+        }
+
+        @Override
+        public void onError(Throwable error) {
+            sendError(emitter, error.getMessage());
+            emitter.completeWithError(error);
+        }
+
+        private void send(SseMessage message) {
+            try {
+                emitter.send(SseEmitter.event().name("message")
+                        .data(message, MediaType.APPLICATION_JSON));
+            } catch (IOException e) {
+                emitter.completeWithError(e);
+            }
         }
     }
 
