@@ -107,37 +107,37 @@ sequenceDiagram
 RAG 查询链路的核心优化在前半段：先判断是否需要 query rewrite，再查 retrieval cache；未命中时才进入 embedding cache、向量检索、BM25、重排和可信校验。为了让图在 README 中更紧凑，下面的总览图保留主链路，部分细节在图后说明。
 
 ```mermaid
-%%{init: {"themeVariables": {"fontSize": "11px"}, "flowchart": {"nodeSpacing": 18, "rankSpacing": 24}}}%%
-flowchart LR
-    subgraph P["1. Preprocess / 查询预处理"]
-        direction TB
-        Q["Question<br/>用户问题"] --> GATE{"Rewrite?<br/>是否改写"}
-        GATE -- "No" --> FQ["Final query<br/>最终查询"]
-        GATE -- "Yes" --> RW["Rewrite + guard<br/>改写与语义保护"]
-        RW --> FQ
+%%{init: {"themeVariables": {"fontSize": "11px"}, "flowchart": {"nodeSpacing": 20, "rankSpacing": 26}}}%%
+flowchart TD
+    Q["Question<br/>用户问题"] --> GATE{"Rewrite?<br/>是否改写"}
+    GATE -- "No" --> FQ["Final query<br/>最终查询"]
+    GATE -- "Yes" --> RW["Rewrite + guard<br/>改写与语义保护"]
+    RW --> FQ
+    FQ --> CACHE{"Retrieval cache?<br/>检索缓存"}
+
+    subgraph TwoCol["Retrieval and answer / 双栏检索与生成"]
+        direction LR
+
+        subgraph MISS["Cache miss path<br/>未命中检索链路"]
+            direction TB
+            HY["Hybrid retrieval<br/>混合召回"] --> VEC["Embedding cache + Milvus<br/>向量缓存与向量检索"]
+            HY --> BM25["BM25<br/>关键词检索"]
+            VEC --> MERGE["Merge + rerank<br/>融合与重排"]
+            BM25 --> MERGE
+            MERGE --> SAVE["Save cache<br/>写入缓存"]
+        end
+
+        subgraph ANSWER["Answer path<br/>生成校验链路"]
+            direction TB
+            CTX["Build context<br/>构造上下文"] --> LLM["DashScope generation<br/>模型生成"]
+            LLM --> FAITH["Faithfulness check<br/>忠实度校验"]
+            FAITH --> OUT["Answer with sources<br/>带来源回答"]
+        end
     end
 
-    subgraph R["2. Retrieve / 缓存与召回"]
-        direction TB
-        CACHE{"Retrieval cache?<br/>检索缓存"}
-        CACHE -- "Hit" --> CTX["Context<br/>上下文"]
-        CACHE -- "Miss" --> HY["Hybrid retrieval<br/>混合召回"]
-        HY --> VEC["Embedding cache + Milvus<br/>向量缓存与向量检索"]
-        HY --> BM25["BM25<br/>关键词检索"]
-        VEC --> MERGE["Merge + rerank<br/>融合与重排"]
-        BM25 --> MERGE
-        MERGE --> SAVE["Save cache<br/>写入缓存"]
-        SAVE --> CTX
-    end
-
-    subgraph G["3. Generate / 生成校验"]
-        direction TB
-        LLM["DashScope generation<br/>模型生成"] --> FAITH["Faithfulness check<br/>忠实度校验"]
-        FAITH --> OUT["Answer with sources<br/>带来源回答"]
-    end
-
-    FQ --> CACHE
-    CTX --> LLM
+    CACHE -- "Hit" --> CTX
+    CACHE -- "Miss" --> HY
+    SAVE --> CTX
 ```
 
 补充说明：
