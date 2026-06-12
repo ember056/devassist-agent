@@ -9,7 +9,7 @@ server:
 file:
   upload:
     path: ./uploads
-    allowed-extensions: txt,md
+    allowed-extensions: txt,md,markdown,log,pdf
 
 milvus:
   host: localhost
@@ -66,6 +66,11 @@ dashscope:
 
 # 文档分片配置。
 document:
+  parse:
+    pdf:
+      # If extracted text is too sparse, treat the PDF as scanned and route it
+      # to an external OCR parser such as MinerU in a later integration.
+      min-page-text-length: 80
   chunk:
     max-size: 800
     overlap: 100

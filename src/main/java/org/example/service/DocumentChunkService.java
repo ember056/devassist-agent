@@ -1,6 +1,8 @@
 package org.example.service;
 
 import org.example.config.DocumentChunkConfig;
+import org.example.document.ParsedBlock;
+import org.example.document.ParsedDocument;
 import org.example.dto.DocumentChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,7 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -53,6 +57,68 @@ public class DocumentChunkService {
 
         logger.info("文档分片完成: {} -> {} 个分片", filePath, chunks.size());
         return chunks;
+    }
+
+    public List<DocumentChunk> chunkDocument(ParsedDocument document) {
+        List<DocumentChunk> chunks = new ArrayList<>();
+        if (document == null || document.blocks() == null || document.blocks().isEmpty()) {
+            return chunks;
+        }
+
+        int globalChunkIndex = 0;
+        int blockIndex = 0;
+        for (ParsedBlock block : document.blocks()) {
+            if (block.text() == null || block.text().isBlank()) {
+                blockIndex++;
+                continue;
+            }
+
+            Section section = new Section(block.title(), block.text(), 0);
+            List<DocumentChunk> blockChunks = chunkSection(section, globalChunkIndex);
+            for (DocumentChunk chunk : blockChunks) {
+                applyParsedMetadata(chunk, document, block, blockIndex);
+            }
+            chunks.addAll(blockChunks);
+            globalChunkIndex += blockChunks.size();
+            blockIndex++;
+        }
+
+        logger.info("文档分片完成: {} -> {} 个分片, parser={}",
+                document.sourceFile(), chunks.size(), document.parserType());
+        return chunks;
+    }
+
+    private void applyParsedMetadata(
+            DocumentChunk chunk,
+            ParsedDocument document,
+            ParsedBlock block,
+            int blockIndex
+    ) {
+        chunk.setPageNumber(block.pageNumber());
+        chunk.setBlockType(block.type());
+        chunk.setParser(document.parserType().name());
+        chunk.setConfidence(block.confidence());
+        if ((chunk.getTitle() == null || chunk.getTitle().isBlank())
+                && block.title() != null
+                && !block.title().isBlank()) {
+            chunk.setTitle(block.title());
+        }
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("documentType", document.documentType().name());
+        metadata.put("parser", document.parserType().name());
+        metadata.put("blockIndex", blockIndex);
+        metadata.put("blockType", block.type());
+        if (block.pageNumber() != null) {
+            metadata.put("pageNumber", block.pageNumber());
+        }
+        if (block.confidence() != null) {
+            metadata.put("confidence", block.confidence());
+        }
+        if (block.metadata() != null) {
+            metadata.putAll(block.metadata());
+        }
+        chunk.setMetadata(metadata);
     }
 
     /**

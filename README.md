@@ -58,7 +58,7 @@ flowchart TD
 ## Main Capabilities / 核心能力
 
 - REST and SSE APIs for chat, ticket analysis, and AIOps diagnosis.
-- RAG over internal runbooks and uploaded documents.
+- RAG over internal runbooks and uploaded documents, including txt, markdown, log, and native-text PDF files.
 - Hybrid retrieval with Milvus vector search and local BM25 search.
 - On-demand query rewrite to avoid unnecessary LLM calls for simple queries.
 - Query embedding cache and retrieval result cache for lower latency and lower API cost.
@@ -71,6 +71,7 @@ flowchart TD
 
 - 通过 REST 和 SSE 接口处理普通问答、工单分析和流式诊断。
 - 对内部 Runbook 和上传文档做 RAG 检索，并保留来源信息。
+- 文档入库先做类型识别，再统一解析为 `ParsedDocument`，保留页码、block 类型、parser 和置信度等元数据。
 - 同时使用 Milvus 向量检索和本地 BM25 关键词检索，兼顾语义召回和精确关键词命中。
 - 对 query rewrite 做按需触发，简单明确的问题直接检索，复杂含糊的问题才改写。
 - 对 query embedding 和检索结果做缓存，降低高频问题的响应时间和外部 API 成本。
@@ -182,6 +183,7 @@ devassist-agent/
 |   |-- client/                         # Milvus client factory / Milvus 客户端
 |   |-- config/                         # Spring and infrastructure config / 基础配置
 |   |-- controller/                     # REST/SSE controllers / 接口入口
+|   |-- document/                       # Document parsing pipeline / 文档解析与格式路由
 |   |-- dto/                            # Request and response DTOs / 请求响应对象
 |   `-- service/
 |       |-- aiops/                      # Hypothesis Graph workflow / 故障假设图诊断链路
@@ -297,7 +299,18 @@ Content-Type: application/json
 
 ### Upload Documents / 上传文档
 
-上传文档后，系统会自动切片、生成 embedding、写入 Milvus，并同步构建本地 BM25 索引。
+上传文档后，系统会先识别文档类型，再解析成统一的 `ParsedDocument`，随后进行语义切片、embedding、Milvus 入库，并同步构建本地 BM25 索引。
+
+当前本地解析能力：
+
+- `txt` / `log`：直接按原生文本解析。
+- `md` / `markdown`：按 Markdown 文本解析，后续切片会优先利用标题结构。
+- `pdf`：使用 PDFBox 解析原生文本层，并按页保留 `pageNumber`。如果文本层过少，会提示该文件可能是扫描件，后续应交给 MinerU/OCR。
+
+复杂格式预留外部解析器接口：
+
+- `docx` / `pptx` / `xlsx` / `html`：适合接入 Unstructured。
+- 扫描 PDF、图片、中文复杂 PDF、双栏、表格和公式密集文档：适合接入 MinerU 或 OCR 服务。
 
 ```bash
 curl -X POST http://localhost:9900/api/upload \
@@ -341,6 +354,14 @@ dashscope:
       enabled: true
       max-size: 10000
       ttl-seconds: 1800
+
+document:
+  parse:
+    pdf:
+      min-page-text-length: 80
+  chunk:
+    max-size: 800
+    overlap: 100
 
 rag:
   top-k: 3
@@ -408,6 +429,8 @@ This keeps confidence changes auditable: every posterior update can be traced ba
 
 The current RAG pipeline includes / 当前 RAG 链路包括：
 
+- Document type detection and structured parsing. 文档入库先识别类型，再统一为 `ParsedDocument`。
+- Native-text PDF parsing with page metadata. 原生 PDF 使用 PDFBox 解析，并保留页码元数据。
 - Query rewrite with semantic similarity guard. query rewrite 带语义相似度保护，避免改写后语义漂移。
 - On-demand query rewrite. 简单明确的问题直接检索，复杂含糊的问题才触发改写。
 - Query embedding cache. 缓存高频 query 的向量，降低 embedding 成本。
@@ -428,6 +451,7 @@ Recommended production optimizations / 后续生产化方向：
 - Route simple queries to smaller models and reserve larger models for complex reasoning. 简单问题走更小模型，复杂推理再使用大模型。
 - Limit context tokens by extracting only the most relevant snippets. 控制上下文 token，只保留最相关片段。
 - Add rate limits and graceful degradation around embedding, Milvus, and LLM calls. 对 embedding、Milvus、LLM 增加限流和降级。
+- Integrate Unstructured and MinerU as external parsers. 后续可将 Unstructured 用于多格式通用文档，将 MinerU 用于中文复杂 PDF、扫描件、表格和公式场景。
 
 ## Harness / 回归验证
 

@@ -10,6 +10,8 @@ import io.milvus.param.dml.InsertParam;
 import lombok.Getter;
 import lombok.Setter;
 import org.example.constant.MilvusConstants;
+import org.example.document.DocumentParseService;
+import org.example.document.ParsedDocument;
 import org.example.dto.DocumentChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +20,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
@@ -41,6 +42,9 @@ public class VectorIndexService {
 
     @Autowired
     private DocumentChunkService chunkService;
+
+    @Autowired
+    private DocumentParseService documentParseService;
 
     @Autowired
     private KeywordSearchService keywordSearchService;
@@ -73,9 +77,7 @@ public class VectorIndexService {
             result.setDirectoryPath(directory.getAbsolutePath());
 
             // 获取所有支持的文件
-            File[] files = directory.listFiles((dir, name) -> 
-                name.endsWith(".txt") || name.endsWith(".md")
-            );
+            File[] files = directory.listFiles((dir, name) -> isSupportedIndexFile(name));
 
             if (files == null || files.length == 0) {
                 logger.warn("目录中没有找到支持的文件: {}", targetPath);
@@ -134,15 +136,20 @@ public class VectorIndexService {
 
         logger.info("开始索引文件: {}", path);
 
-        // 1. 读取文件内容
-        String content = Files.readString(path);
-        logger.info("读取文件: {}, 内容长度: {} 字符", path, content.length());
+        // 1. 解析文档，统一输出结构化 ParsedDocument。
+        ParsedDocument parsedDocument = documentParseService.parse(path);
+        logger.info(
+                "文档解析完成: {}, parser={}, blocks={}",
+                path,
+                parsedDocument.parserType(),
+                parsedDocument.blocks().size()
+        );
 
         // 2. 删除该文件的旧数据（如果存在）
         deleteExistingData(path.toString());
 
         // 3. 文档分片
-        List<DocumentChunk> chunks = chunkService.chunkDocument(content, path.toString());
+        List<DocumentChunk> chunks = chunkService.chunkDocument(parsedDocument);
         logger.info("文档分片完成: {} -> {} 个分片", filePath, chunks.size());
 
         // 4. 同步构建 BM25 关键词索引，用于混合召回
@@ -251,8 +258,35 @@ public class VectorIndexService {
         if (chunk.getTitle() != null && !chunk.getTitle().isEmpty()) {
             metadata.put("title", chunk.getTitle());
         }
+        if (chunk.getPageNumber() != null) {
+            metadata.put("pageNumber", chunk.getPageNumber());
+        }
+        if (chunk.getBlockType() != null && !chunk.getBlockType().isBlank()) {
+            metadata.put("blockType", chunk.getBlockType());
+        }
+        if (chunk.getParser() != null && !chunk.getParser().isBlank()) {
+            metadata.put("parser", chunk.getParser());
+        }
+        if (chunk.getConfidence() != null) {
+            metadata.put("confidence", chunk.getConfidence());
+        }
+        if (chunk.getMetadata() != null && !chunk.getMetadata().isEmpty()) {
+            metadata.putAll(chunk.getMetadata());
+        }
         
         return metadata;
+    }
+
+    private boolean isSupportedIndexFile(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".txt")
+                || lower.endsWith(".log")
+                || lower.endsWith(".md")
+                || lower.endsWith(".markdown")
+                || lower.endsWith(".pdf");
     }
 
     /**

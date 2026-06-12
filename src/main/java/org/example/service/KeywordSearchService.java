@@ -1,6 +1,8 @@
 package org.example.service;
 
 import jakarta.annotation.PostConstruct;
+import org.example.document.DocumentParseService;
+import org.example.document.ParsedDocument;
 import org.example.dto.DocumentChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,7 +11,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -41,6 +42,9 @@ public class KeywordSearchService {
     @Autowired
     private DocumentChunkService chunkService;
 
+    @Autowired
+    private DocumentParseService documentParseService;
+
     @Value("${file.upload.path}")
     private String uploadPath;
 
@@ -61,14 +65,14 @@ public class KeywordSearchService {
                 return;
             }
 
-            File[] files = directory.listFiles((dir, name) -> name.endsWith(".txt") || name.endsWith(".md"));
+            File[] files = directory.listFiles((dir, name) -> isSupportedIndexFile(name));
             if (files == null || files.length == 0) {
                 return;
             }
 
             for (File file : files) {
-                String content = Files.readString(file.toPath());
-                List<DocumentChunk> chunks = chunkService.chunkDocument(content, file.getAbsolutePath());
+                ParsedDocument parsedDocument = documentParseService.parse(file.toPath());
+                List<DocumentChunk> chunks = chunkService.chunkDocument(parsedDocument);
                 indexChunks(file.getAbsolutePath(), chunks);
             }
             logger.info("BM25 启动加载完成，文档片段数: {}", documents.size());
@@ -173,6 +177,18 @@ public class KeywordSearchService {
         return Paths.get(sourcePath).normalize().toString().replace(File.separator, "/");
     }
 
+    private boolean isSupportedIndexFile(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".txt")
+                || lower.endsWith(".log")
+                || lower.endsWith(".md")
+                || lower.endsWith(".markdown")
+                || lower.endsWith(".pdf");
+    }
+
     static List<String> tokenize(String text) {
         if (text == null || text.isBlank()) {
             return List.of();
@@ -233,8 +249,7 @@ public class KeywordSearchService {
                 termFrequency.merge(term, 1, Integer::sum);
             }
 
-            String metadata = "{\"_source\":\"%s\",\"chunkIndex\":%d,\"title\":\"%s\"}"
-                    .formatted(source, chunk.getChunkIndex(), chunk.getTitle() == null ? "" : chunk.getTitle());
+            String metadata = buildMetadata(source, chunk);
 
             return new IndexedDocument(
                     id,
@@ -244,6 +259,26 @@ public class KeywordSearchService {
                     termFrequency,
                     Math.max(1, terms.size())
             );
+        }
+
+        private static String buildMetadata(String source, DocumentChunk chunk) {
+            com.google.gson.JsonObject metadata = new com.google.gson.JsonObject();
+            metadata.addProperty("_source", source);
+            metadata.addProperty("chunkIndex", chunk.getChunkIndex());
+            metadata.addProperty("title", chunk.getTitle() == null ? "" : chunk.getTitle());
+            if (chunk.getPageNumber() != null) {
+                metadata.addProperty("pageNumber", chunk.getPageNumber());
+            }
+            if (chunk.getBlockType() != null) {
+                metadata.addProperty("blockType", chunk.getBlockType());
+            }
+            if (chunk.getParser() != null) {
+                metadata.addProperty("parser", chunk.getParser());
+            }
+            if (chunk.getConfidence() != null) {
+                metadata.addProperty("confidence", chunk.getConfidence());
+            }
+            return metadata.toString();
         }
     }
 }
