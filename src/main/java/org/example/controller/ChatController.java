@@ -3,10 +3,13 @@ package org.example.controller;
 import lombok.Getter;
 import lombok.Setter;
 import org.example.dto.AIOpsRequest;
-import org.example.service.AiOpsService;
 import org.example.service.ChatApplicationService;
 import org.example.service.ChatMemoryService;
 import org.example.service.aiops.AiOpsAnalysisResult;
+import org.example.service.aiops.AiOpsTaskRecord;
+import org.example.service.aiops.AiOpsTaskService;
+import org.example.trace.AgentTraceService;
+import org.example.trace.TraceRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -28,16 +32,19 @@ import java.util.concurrent.Executors;
 public class ChatController {
     private static final Logger logger = LoggerFactory.getLogger(ChatController.class);
 
-    private final AiOpsService aiOpsService;
+    private final AiOpsTaskService aiOpsTaskService;
     private final ChatApplicationService chatApplicationService;
+    private final AgentTraceService traceService;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     public ChatController(
-            AiOpsService aiOpsService,
-            ChatApplicationService chatApplicationService
+            AiOpsTaskService aiOpsTaskService,
+            ChatApplicationService chatApplicationService,
+            AgentTraceService traceService
     ) {
-        this.aiOpsService = aiOpsService;
+        this.aiOpsTaskService = aiOpsTaskService;
         this.chatApplicationService = chatApplicationService;
+        this.traceService = traceService;
     }
 
     @PostMapping("/chat")
@@ -49,7 +56,11 @@ public class ChatController {
 
             ChatApplicationService.ChatResult result =
                     chatApplicationService.chat(request.getId(), request.getQuestion());
-            return ResponseEntity.ok(ApiResponse.success(ChatResponse.success(result.sessionId(), result.answer())));
+            return ResponseEntity.ok(ApiResponse.success(ChatResponse.success(
+                    result.sessionId(),
+                    result.answer(),
+                    result.traceId()
+            )));
         } catch (Exception e) {
             logger.error("Chat request failed", e);
             return ResponseEntity.ok(ApiResponse.success(ChatResponse.error(e.getMessage())));
@@ -107,11 +118,14 @@ public class ChatController {
             try {
                 String incidentRequest = request == null ? null : request.getUserRequest();
                 logger.info("Received AI Ops request - starting Hypothesis Graph workflow");
+                AiOpsTaskRecord task = aiOpsTaskService.createTask(incidentRequest);
 
+                emitter.send(SseEmitter.event().name("message")
+                        .data(SseMessage.task(task.getTaskId(), task.getTraceId()), MediaType.APPLICATION_JSON));
                 emitter.send(SseEmitter.event().name("message")
                         .data(SseMessage.content("Building hypothesis graph and collecting evidence...\n"), MediaType.APPLICATION_JSON));
 
-                AiOpsAnalysisResult result = aiOpsService.executeAiOpsAnalysis(incidentRequest);
+                AiOpsAnalysisResult result = aiOpsTaskService.runTask(task.getTaskId());
                 sendChunked(emitter, result.getReport(), 80);
 
                 emitter.send(SseEmitter.event().name("message")
@@ -126,6 +140,30 @@ public class ChatController {
         });
 
         return emitter;
+    }
+
+    @GetMapping("/ai_ops/tasks/{taskId}")
+    public ResponseEntity<ApiResponse<AiOpsTaskRecord>> getAiOpsTask(@PathVariable String taskId) {
+        return aiOpsTaskService.getTask(taskId)
+                .map(task -> ResponseEntity.ok(ApiResponse.success(task)))
+                .orElseGet(() -> ResponseEntity.ok(ApiResponse.error("AIOps task does not exist")));
+    }
+
+    @GetMapping("/ai_ops/tasks")
+    public ResponseEntity<ApiResponse<List<AiOpsTaskRecord>>> listAiOpsTasks() {
+        return ResponseEntity.ok(ApiResponse.success(aiOpsTaskService.listRecent(50)));
+    }
+
+    @GetMapping("/traces/{traceId}")
+    public ResponseEntity<ApiResponse<TraceRecord>> getTrace(@PathVariable String traceId) {
+        return traceService.getTrace(traceId)
+                .map(trace -> ResponseEntity.ok(ApiResponse.success(trace)))
+                .orElseGet(() -> ResponseEntity.ok(ApiResponse.error("Trace does not exist")));
+    }
+
+    @GetMapping("/traces")
+    public ResponseEntity<ApiResponse<List<TraceRecord>>> listTraces() {
+        return ResponseEntity.ok(ApiResponse.success(traceService.listRecent(50)));
     }
 
     @GetMapping("/chat/session/{sessionId}")
@@ -191,6 +229,11 @@ public class ChatController {
         }
 
         @Override
+        public void onTrace(String traceId) {
+            send(SseMessage.trace(traceId));
+        }
+
+        @Override
         public void onContent(String chunk) {
             send(SseMessage.content(chunk));
         }
@@ -251,12 +294,14 @@ public class ChatController {
     public static class ChatResponse {
         private boolean success;
         private String sessionId;
+        private String traceId;
         private String answer;
         private String errorMessage;
 
-        public static ChatResponse success(String sessionId, String answer) {
+        public static ChatResponse success(String sessionId, String answer, String traceId) {
             ChatResponse response = success(answer);
             response.setSessionId(sessionId);
+            response.setTraceId(traceId);
             return response;
         }
 
@@ -280,6 +325,8 @@ public class ChatController {
     public static class SseMessage {
         private String type;
         private String data;
+        private String taskId;
+        private String traceId;
 
         public static SseMessage content(String data) {
             SseMessage message = new SseMessage();
@@ -299,6 +346,23 @@ public class ChatController {
             SseMessage message = new SseMessage();
             message.setType("session");
             message.setData(sessionId);
+            return message;
+        }
+
+        public static SseMessage trace(String traceId) {
+            SseMessage message = new SseMessage();
+            message.setType("trace");
+            message.setData(traceId);
+            message.setTraceId(traceId);
+            return message;
+        }
+
+        public static SseMessage task(String taskId, String traceId) {
+            SseMessage message = new SseMessage();
+            message.setType("task");
+            message.setTaskId(taskId);
+            message.setTraceId(traceId);
+            message.setData(taskId);
             return message;
         }
 

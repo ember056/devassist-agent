@@ -43,6 +43,7 @@ build/
 *.log
 app.log
 logs/
+data/
 
 ### Upload Files ###
 uploads/

@@ -8,9 +8,12 @@ import com.alibaba.dashscope.embeddings.TextEmbeddingResultItem;
 import com.alibaba.dashscope.exception.NoApiKeyException;
 import com.alibaba.dashscope.utils.Constants;
 import jakarta.annotation.PostConstruct;
+import org.example.trace.AgentTraceService;
+import org.example.trace.TraceSpan;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -39,6 +42,9 @@ public class VectorEmbeddingService {
 
     @Value("${dashscope.embedding.query-cache.ttl-seconds:1800}")
     private long queryCacheTtlSeconds;
+
+    @Autowired
+    private AgentTraceService traceService;
 
     private TextEmbedding textEmbedding;
     private final Map<String, CacheEntry<List<Float>>> queryVectorCache = new ConcurrentHashMap<>();
@@ -129,10 +135,15 @@ public class VectorEmbeddingService {
         CacheEntry<List<Float>> cached = queryVectorCache.get(cacheKey);
         if (cached != null && !cached.expired()) {
             logger.debug("Query embedding cache hit. key={}", cacheKey);
+            traceService.event("rag", "embedding_cache_hit", Map.of("queryLength", query == null ? 0 : query.length()));
             return new ArrayList<>(cached.value());
         }
 
-        List<Float> vector = generateEmbedding(query);
+        List<Float> vector;
+        try (TraceSpan span = traceService.startSpan("rag", "embedding_generate", Map.of("queryLength", query == null ? 0 : query.length()))) {
+            vector = generateEmbedding(query);
+            span.success(Map.of("dimensions", vector.size()));
+        }
         putQueryVector(cacheKey, vector);
         return vector;
     }

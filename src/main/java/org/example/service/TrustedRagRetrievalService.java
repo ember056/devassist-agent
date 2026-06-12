@@ -1,6 +1,8 @@
 package org.example.service;
 
 import lombok.Getter;
+import org.example.trace.AgentTraceService;
+import org.example.trace.TraceSpan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,9 @@ public class TrustedRagRetrievalService {
     @Autowired
     private RerankService rerankService;
 
+    @Autowired
+    private AgentTraceService traceService;
+
     @Value("${rag.retrieval.cache.enabled:true}")
     private boolean retrievalCacheEnabled;
 
@@ -41,22 +46,43 @@ public class TrustedRagRetrievalService {
         if (retrievalCacheEnabled) {
             CacheEntry<TrustedRagResult> cached = retrievalCache.get(cacheKey);
             if (cached != null && !cached.expired()) {
+                traceService.event("rag", "retrieval_cache_hit", Map.of(
+                        "topK", topK,
+                        "queryLength", question == null ? 0 : question.length()
+                ));
                 return copyResult(cached.value());
             }
         }
 
-        QueryPreprocessService.QueryPreprocessResult preprocessResult =
-                queryPreprocessService.preprocess(question);
+        QueryPreprocessService.QueryPreprocessResult preprocessResult;
+        try (TraceSpan span = traceService.startSpan("rag", "query_preprocess", Map.of("topK", topK))) {
+            preprocessResult = queryPreprocessService.preprocess(question);
+            span.success(Map.of(
+                    "rewriteAccepted", preprocessResult.rewriteAccepted(),
+                    "rewriteSimilarity", preprocessResult.similarity(),
+                    "reason", preprocessResult.reason()
+            ));
+        }
 
         QueryComplexityService.QueryRoute route =
                 queryComplexityService.route(preprocessResult.finalQuery());
+        traceService.event("rag", "query_route", Map.of(
+                "complexity", route.getComplexity().name(),
+                "retrievalMode", route.getRetrievalMode().name()
+        ));
 
-        List<VectorSearchService.SearchResult> rawResults =
-                hybridRetrievalService.retrieve(
-                        preprocessResult.finalQuery(),
-                        topK,
-                        route.getRetrievalMode()
-                );
+        List<VectorSearchService.SearchResult> rawResults;
+        try (TraceSpan span = traceService.startSpan("rag", "hybrid_retrieve", Map.of(
+                "retrievalMode", route.getRetrievalMode().name(),
+                "topK", topK
+        ))) {
+            rawResults = hybridRetrievalService.retrieve(
+                    preprocessResult.finalQuery(),
+                    topK,
+                    route.getRetrievalMode()
+            );
+            span.success(Map.of("rawResultCount", rawResults.size()));
+        }
 
         boolean rerankApplied = route.complex()
                 && rerankService.shouldRerank(preprocessResult.finalQuery(), rawResults);
@@ -64,6 +90,10 @@ public class TrustedRagRetrievalService {
                 rerankApplied
                         ? rerankService.rerank(preprocessResult.finalQuery(), rawResults)
                         : rawResults;
+        traceService.event("rag", "rerank_decision", Map.of(
+                "rerankApplied", rerankApplied,
+                "finalResultCount", finalResults.size()
+        ));
         assignSourceIndexes(finalResults);
 
         TrustedRagResult result = new TrustedRagResult(preprocessResult, finalResults, rerankApplied, route);

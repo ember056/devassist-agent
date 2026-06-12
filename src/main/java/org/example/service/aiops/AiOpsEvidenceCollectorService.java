@@ -3,12 +3,15 @@ package org.example.service.aiops;
 import org.example.agent.tool.InternalDocsTools;
 import org.example.agent.tool.QueryLogsTools;
 import org.example.agent.tool.QueryMetricsTools;
+import org.example.trace.AgentTraceService;
+import org.example.trace.TraceSpan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
@@ -16,17 +19,20 @@ public class AiOpsEvidenceCollectorService {
     private final QueryMetricsTools queryMetricsTools;
     private final InternalDocsTools internalDocsTools;
     private final QueryLogsTools queryLogsTools;
+    private final AgentTraceService traceService;
     private final AtomicInteger sequence = new AtomicInteger();
 
     @Autowired
     public AiOpsEvidenceCollectorService(
             QueryMetricsTools queryMetricsTools,
             InternalDocsTools internalDocsTools,
-            ObjectProvider<QueryLogsTools> queryLogsToolsProvider
+            ObjectProvider<QueryLogsTools> queryLogsToolsProvider,
+            AgentTraceService traceService
     ) {
         this.queryMetricsTools = queryMetricsTools;
         this.internalDocsTools = internalDocsTools;
         this.queryLogsTools = queryLogsToolsProvider.getIfAvailable();
+        this.traceService = traceService;
     }
 
     public List<EvidenceNode> collect(String incidentRequest) {
@@ -93,9 +99,12 @@ public class AiOpsEvidenceCollectorService {
     }
 
     private EvidenceNode callTool(EvidenceType type, String source, String summary, ToolCall call) {
-        try {
-            return new EvidenceNode(nextId(), type, source, summary, call.execute());
+        try (TraceSpan span = traceService.startSpan("tool", source, Map.of("evidenceType", type.name()))) {
+            String content = call.execute();
+            span.success(Map.of("contentLength", content == null ? 0 : content.length()));
+            return new EvidenceNode(nextId(), type, source, summary, content);
         } catch (Exception e) {
+            traceService.event("tool", source + "_failed", Map.of("error", e.getMessage()));
             return new EvidenceNode(
                     nextId(),
                     EvidenceType.TOOL_ERROR,
