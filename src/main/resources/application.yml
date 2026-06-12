@@ -30,19 +30,18 @@ aiops:
     persist-enabled: true
     storage-dir: ./data/aiops-tasks
 
-# Spring AI Alibaba DashScope 配置
 spring:
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
       timeout: 2s
   ai:
     dashscope:
       api-key: ${DASHSCOPE_API_KEY:your-api-key-here}
       chat:
         options:
-          # DashScope 对话请求超时时间，单位毫秒。
           timeout: 180000
       retry:
         max-attempts: 3
@@ -50,7 +49,6 @@ spring:
           initial-interval: 2000
           multiplier: 2
           max-interval: 10000
-    # MCP 客户端默认关闭。接入外部 MCP 工具时，通过环境变量显式开启。
     mcp:
       client:
         enabled: ${MCP_CLIENT_ENABLED:false}
@@ -64,7 +62,6 @@ spring:
               url: ${TENCENT_MCP_URL:https://mcp-api.tencent-cloud.com}
               sse-endpoint: ${TENCENT_MCP_SSE_ENDPOINT:/sse/your-endpoint}
 
-# DashScope API 与 embedding 配置
 dashscope:
   api:
     key: ${DASHSCOPE_API_KEY:your-api-key-here}
@@ -75,17 +72,14 @@ dashscope:
       max-size: 10000
       ttl-seconds: 1800
 
-# 文档解析与分片配置
 document:
   parse:
     pdf:
-      # PDF 提取文本过少时，视作扫描件，后续可路由到 MinerU/OCR 解析器。
       min-page-text-length: 80
   chunk:
     max-size: 800
     overlap: 100
 
-# RAG 配置
 rag:
   top-k: 3
   model: "qwen3-max"
@@ -119,7 +113,6 @@ rag:
     enabled: true
     top-k: 3
 
-# 聊天记忆配置
 chat:
   memory:
     redis-enabled: true
@@ -130,12 +123,10 @@ chat:
     semantic-top-k: 3
     semantic-max-answer-length: 1200
 
-# Prometheus 配置
 prometheus:
   base-url: http://localhost:9090
   timeout: 10
   mock-enabled: false
 
-# 云日志服务配置
 cls:
   mock-enabled: false

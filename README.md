@@ -187,6 +187,20 @@ Milvus: localhost:19530
 Redis:  localhost:6379
 ```
 
+如果使用外部 Redis，不需要启动本地 Redis，只要通过环境变量覆盖连接信息：
+
+```bash
+export REDIS_HOST=your-redis-host
+export REDIS_PORT=6379
+export REDIS_PASSWORD=your-redis-password
+```
+
+如果 Redis 部署在远程服务器且只监听本机地址，可以在本地开发机建立 SSH 隧道后继续使用 `REDIS_HOST=localhost`：
+
+```bash
+ssh -L 6379:127.0.0.1:6379 ubuntu@your-server-ip
+```
+
 ### 3. Start Service / 启动服务
 
 ```bash
@@ -288,6 +302,13 @@ aiops:
   task:
     persist-enabled: true
     storage-dir: ./data/aiops-tasks
+
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
 
 rag:
   query-rewrite:
