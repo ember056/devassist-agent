@@ -1,6 +1,11 @@
 {
   "id": "chat_general_no_forced_rag",
   "name": "普通闲聊不强制触发 RAG 校验",
+  "category": "chat",
+  "capabilities": [
+    "chat_route",
+    "no_forced_rag"
+  ],
   "endpoint": "/api/chat",
   "payload": {
     "Id": "harness-general-chat",
@@ -13,6 +18,14 @@
     "not_contains": [
       "可信 RAG 校验"
     ],
-    "regex": []
+    "regex": [],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 120000
   }
 }

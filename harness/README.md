@@ -7,7 +7,58 @@
 - 检查普通聊天是否触发可信 RAG 校验。
 - 检查回答是否包含参考来源。
 - 检查 Query Rewrite、Rerank、Faithfulness 等增强信息是否出现在输出中。
-- 为后续 AIOps 多 Agent 报告评估预留结构。
+- 检查 AIOps 假设图报告是否包含根因排序、证据、置信度更新和推荐动作。
+- 检查 SSE 链路是否返回 taskId、traceId、content 和 done 事件。
+
+## 测试集如何定义
+
+Harness 测试集不是随便写几个问题，而是按“场景类型 + 能力覆盖 + 稳定断言”组织。
+
+当前用例分三类：
+
+| category | 目标 | 典型断言 |
+|---|---|---|
+| `chat` | 验证普通对话不会误走复杂 RAG / AIOps 链路 | 不包含 `可信 RAG 校验`，JSON 中有 `data.traceId` |
+| `rag` | 验证知识库问答、混合召回、来源引用和可信校验 | 包含 `参考来源`、`Faithfulness`，JSON 中有 `data.answer` |
+| `aiops` | 验证故障假设图 workflow 是否稳定 | SSE 有 `task/content/done`，报告包含 `Hypothesis Ranking`、`Confidence Update Trace` |
+
+每个 case 建议包含：
+
+```json
+{
+  "id": "aiops_cpu_hypothesis_graph",
+  "name": "AIOps CPU 高使用率假设图诊断",
+  "category": "aiops",
+  "capabilities": [
+    "hypothesis_graph",
+    "evidence_collection",
+    "confidence_update",
+    "topk_pruning",
+    "task_trace"
+  ],
+  "endpoint": "/api/ai_ops",
+  "payload": {
+    "userRequest": "payment-service CPU 使用率持续超过 90%，接口延迟升高，请分析可能根因并给出排查建议。"
+  },
+  "assertions": {
+    "contains": ["Hypothesis Ranking", "Confidence Update Trace"],
+    "not_contains": ["AI Ops analysis failed"],
+    "regex": ["strong support\\s*\\|\\s*10\\.00"],
+    "sse_types": ["task", "content", "done"],
+    "sse_trace_id": true,
+    "sse_task_id": true,
+    "max_duration_ms": 180000
+  }
+}
+```
+
+定义原则：
+
+1. 优先断言结构和关键证据，不死磕大模型自然语言。
+2. RAG 用例要覆盖普通问答、知识库问答、来源引用和可信校验。
+3. AIOps 用例要覆盖报告结构、根因候选、证据采集、LR 更新、剪枝和 trace/task。
+4. 每个用例都要有 `capabilities`，方便看测试集覆盖了哪些能力。
+5. 高风险改动后重点看失败原因和 report，不只看 pass/fail。
 
 ## 运行前提
 
@@ -33,6 +84,31 @@ python harness/runner.py --base-url http://localhost:9900
 python harness/runner.py --cases harness/cases
 ```
 
+只校验测试集 schema，不请求服务：
+
+```bash
+python harness/runner.py --validate-only
+```
+
+查看当前会运行哪些用例：
+
+```bash
+python harness/runner.py --list
+```
+
+只运行某一类用例：
+
+```bash
+python harness/runner.py --category rag
+python harness/runner.py --category rag,aiops
+```
+
+遇到第一条失败用例就停止：
+
+```bash
+python harness/runner.py --fail-fast
+```
+
 ## 用例格式
 
 ```json
@@ -47,10 +123,32 @@ python harness/runner.py --cases harness/cases
   "assertions": {
     "contains": ["可信 RAG 校验", "参考来源"],
     "not_contains": ["unsupportedClaims"],
-    "regex": ["Faithfulness[：:]\\s*(通过|未通过)"]
+    "regex": ["Faithfulness[：:]\\s*(通过|未通过)"],
+    "json_path_exists": ["data.traceId", "data.answer"],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "sse_types": ["task", "content", "done"],
+    "sse_trace_id": true,
+    "sse_task_id": true,
+    "max_duration_ms": 180000
   }
 }
 ```
+
+断言说明：
+
+| assertion | 说明 |
+|---|---|
+| `contains` | 响应文本必须包含指定片段 |
+| `not_contains` | 响应文本不能包含指定片段 |
+| `regex` | 响应文本必须匹配正则 |
+| `json_path_exists` | JSON 响应中必须存在字段，例如 `data.traceId` |
+| `json_path_equals` | JSON 响应字段必须等于指定值 |
+| `sse_types` | SSE 响应中必须出现指定消息类型 |
+| `sse_trace_id` | SSE 响应必须包含 traceId |
+| `sse_task_id` | SSE 响应必须包含 taskId |
+| `max_duration_ms` | 端到端耗时上限 |
 
 ## 报告
 
@@ -65,12 +163,25 @@ harness/reports/latest-report.json
 - 总用例数
 - 通过数
 - 失败数
+- 按 `category` 汇总的通过情况
+- 按 `capabilities` 汇总的能力覆盖情况
 - 每条用例的响应摘要
 - 失败断言原因
 
+## 二次复查后的优化
+
+这版 Harness 做了几个工程化补强：
+
+1. 增加 case schema 校验，避免字段拼错导致用例“看似跑了、实际没断言”。
+2. 增加 `--category`，可以只跑 `chat`、`rag` 或 `aiops`，方便定位是哪条链路退化。
+3. 增加 `--list` 和 `--validate-only`，服务未启动时也能检查测试集本身。
+4. 增加 `--fail-fast`，适合 CI 或本地快速定位第一条失败用例。
+5. 报告增加 `byCategory` 和 `capabilityCoverage`，能看到测试集覆盖了哪些能力。
+6. AIOps 用例优先断言报告结构、候选根因、证据和 LR，不全文匹配模型回答，降低非确定性误报。
+
 ## 后续扩展
 
-- 增加 `/api/ai_ops` 报告结构检查。
 - 增加 Context Recall 标注集。
 - 增加 Faithfulness 自动评分阈值。
+- 增加真实根因标签，统计 Top-1 Accuracy、Top-K Recall 和误剪率。
 - 接入 CI，在每次改 Prompt 或 RAG 策略后自动跑评估。

@@ -1,6 +1,12 @@
 {
   "id": "rag_service_unavailable",
   "name": "服务不可用故障处理建议",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness"
+  ],
   "endpoint": "/api/chat",
   "payload": {
     "Id": "harness-rag-service-unavailable",
@@ -19,6 +25,14 @@
     "regex": [
       "参考资料\\s*\\d+",
       "Faithfulness[：:]\\s*(通过|未通过)"
-    ]
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
   }
 }

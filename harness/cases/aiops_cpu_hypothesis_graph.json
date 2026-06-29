@@ -1,0 +1,47 @@
+{
+  "id": "aiops_cpu_hypothesis_graph",
+  "name": "AIOps CPU 高使用率假设图诊断",
+  "category": "aiops",
+  "capabilities": [
+    "hypothesis_graph",
+    "evidence_collection",
+    "confidence_update",
+    "topk_pruning",
+    "task_trace"
+  ],
+  "endpoint": "/api/ai_ops",
+  "payload": {
+    "userRequest": "payment-service CPU 使用率持续超过 90%，接口延迟升高，请分析可能根因并给出排查建议。"
+  },
+  "assertions": {
+    "contains": [
+      "AIOps Hypothesis Graph Analysis Report",
+      "Most Likely Root Cause",
+      "Hypothesis Ranking",
+      "Evidence-backed Explanation Tree",
+      "Confidence Update Trace",
+      "Evidence Collected",
+      "Recommended Next Actions",
+      "CPU resource bottleneck",
+      "Posterior confidence",
+      "LR"
+    ],
+    "not_contains": [
+      "AI Ops analysis failed",
+      "No hypothesis was generated"
+    ],
+    "regex": [
+      "Root cause:\\s+CPU resource bottleneck",
+      "strong support\\s*\\|\\s*10\\.00",
+      "Status:\\s+(ACTIVE|CONFIRMED)"
+    ],
+    "sse_types": [
+      "task",
+      "content",
+      "done"
+    ],
+    "sse_trace_id": true,
+    "sse_task_id": true,
+    "max_duration_ms": 180000
+  }
+}

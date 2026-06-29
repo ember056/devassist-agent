@@ -397,6 +397,25 @@ python harness/runner.py --base-url http://localhost:9900
 harness/reports/latest-report.json
 ```
 
+当前 Harness 测试集位于 `harness/cases`，按 `chat`、`rag`、`aiops` 三类组织：
+
+- `chat`：验证普通闲聊不会被强制路由到可信 RAG。
+- `rag`：验证 query rewrite、混合召回、来源引用和 Faithfulness 结构。
+- `aiops`：验证假设图报告、证据采集、置信度更新、Top-K 剪枝、taskId 和 traceId。
+
+用例断言包括文本包含、禁止文本、正则、JSON 字段、SSE 事件类型、taskId/traceId 和耗时阈值。Harness 目前主要做结构性回归和关键行为检查，不等同于完整语义质量评测。
+
+常用命令：
+
+```bash
+python harness/runner.py --validate-only
+python harness/runner.py --list
+python harness/runner.py --category rag
+python harness/runner.py --category aiops --fail-fast
+```
+
+报告会输出总通过率、按 `category` 的通过情况，以及按 `capabilities` 的能力覆盖情况，便于判断是 RAG、普通 Chat 还是 AIOps workflow 发生了退化。
+
 ## Development Notes / 开发提示
 
 - `prometheus.mock-enabled=true` 可启用模拟 Prometheus 告警数据。

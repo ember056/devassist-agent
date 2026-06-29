@@ -1,0 +1,46 @@
+{
+  "id": "aiops_database_connection_pool",
+  "name": "AIOps 数据库超时与连接池候选诊断",
+  "category": "aiops",
+  "capabilities": [
+    "hypothesis_graph",
+    "evidence_collection",
+    "confidence_update",
+    "contradiction_filter",
+    "report_structure"
+  ],
+  "endpoint": "/api/ai_ops",
+  "payload": {
+    "userRequest": "order-service 大量请求出现 database query timeout，怀疑数据库连接池耗尽，请结合日志和告警分析。"
+  },
+  "assertions": {
+    "contains": [
+      "AIOps Hypothesis Graph Analysis Report",
+      "Database connection pool exhaustion",
+      "Database performance bottleneck",
+      "Hypothesis Ranking",
+      "Confidence Update Trace",
+      "Evidence Collected",
+      "Recommended Next Actions",
+      "Posterior confidence"
+    ],
+    "not_contains": [
+      "AI Ops analysis failed",
+      "No hypothesis was generated"
+    ],
+    "regex": [
+      "strong support\\s*\\|\\s*10\\.00",
+      "queryLogs/(application-logs|database-slow-query)",
+      "Database connection pool exhaustion\\s*\\|\\s*CONFIG\\s*\\|",
+      "Status:\\s+(ACTIVE|CONFIRMED|PRUNED|REJECTED)"
+    ],
+    "sse_types": [
+      "task",
+      "content",
+      "done"
+    ],
+    "sse_trace_id": true,
+    "sse_task_id": true,
+    "max_duration_ms": 180000
+  }
+}
