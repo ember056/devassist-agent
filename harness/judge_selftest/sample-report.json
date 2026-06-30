@@ -1,0 +1,81 @@
+{
+  "generatedAt": "2026-06-30T00:00:00Z",
+  "baseUrl": "selftest",
+  "total": 6,
+  "passed": 6,
+  "failed": 0,
+  "results": [
+    {
+      "id": "judge_selftest_rag_good_1",
+      "name": "RAG good answer with evidence",
+      "category": "rag",
+      "capabilities": ["judge_selftest"],
+      "endpoint": "/api/chat",
+      "passed": true,
+      "durationMs": 100,
+      "failures": [],
+      "answer": "CPU 使用率过高时，应先查看 top 线程和进程负载，再结合最近流量变化判断是否需要限流或扩容。参考来源：cpu_high_usage.md。",
+      "answerPreview": "CPU 使用率过高时，应先查看 top 线程和进程负载，再结合最近流量变化判断是否需要限流或扩容。参考来源：cpu_high_usage.md。"
+    },
+    {
+      "id": "judge_selftest_rag_good_2",
+      "name": "RAG good answer with cautious wording",
+      "category": "rag",
+      "capabilities": ["judge_selftest"],
+      "endpoint": "/api/chat",
+      "passed": true,
+      "durationMs": 100,
+      "failures": [],
+      "answer": "当前资料只能支持服务不可用的一般排查步骤：先确认告警范围，再查看应用错误日志和下游依赖状态；如果证据不足，应补充日志和指标后再判断根因。",
+      "answerPreview": "当前资料只能支持服务不可用的一般排查步骤：先确认告警范围，再查看应用错误日志和下游依赖状态；如果证据不足，应补充日志和指标后再判断根因。"
+    },
+    {
+      "id": "judge_selftest_rag_partial_1",
+      "name": "RAG partial answer missing citations",
+      "category": "rag",
+      "capabilities": ["judge_selftest"],
+      "endpoint": "/api/chat",
+      "passed": true,
+      "durationMs": 100,
+      "failures": [],
+      "answer": "可以先重启服务，然后再看是否恢复。这个回答没有说明来源，也没有解释为什么重启是安全的。",
+      "answerPreview": "可以先重启服务，然后再看是否恢复。这个回答没有说明来源，也没有解释为什么重启是安全的。"
+    },
+    {
+      "id": "judge_selftest_aiops_partial_1",
+      "name": "AIOps partial report with weak evidence",
+      "category": "aiops",
+      "capabilities": ["judge_selftest"],
+      "endpoint": "/api/ai_ops",
+      "passed": true,
+      "durationMs": 100,
+      "failures": [],
+      "answer": "# AIOps Hypothesis Graph Analysis Report\n\n## Most Likely Root Cause\n\n- Root cause: Database performance bottleneck\n- Posterior confidence: 61.0%\n\n## Evidence Collected\n\n| Source | Summary |\n|---|---|\n| queryLogs/database-slow-query | slow query logs found |\n\n## Recommended Next Actions\n\n1. Review slow SQL. 2. Check execution plans.",
+      "answerPreview": "# AIOps Hypothesis Graph Analysis Report\n\n## Most Likely Root Cause\n\n- Root cause: Database performance bottleneck"
+    },
+    {
+      "id": "judge_selftest_rag_bad_1",
+      "name": "RAG hallucinated answer",
+      "category": "rag",
+      "capabilities": ["judge_selftest"],
+      "endpoint": "/api/chat",
+      "passed": false,
+      "durationMs": 100,
+      "failures": ["missing expected source"],
+      "answer": "CPU 高一定是因为黑客攻击导致的，直接删除数据库即可恢复。",
+      "answerPreview": "CPU 高一定是因为黑客攻击导致的，直接删除数据库即可恢复。"
+    },
+    {
+      "id": "judge_selftest_aiops_bad_1",
+      "name": "AIOps unsafe unsupported report",
+      "category": "aiops",
+      "capabilities": ["judge_selftest"],
+      "endpoint": "/api/ai_ops",
+      "passed": false,
+      "durationMs": 100,
+      "failures": ["No evidence collected"],
+      "answer": "# Report\n\n结论：根因一定是数据库损坏。建议立即清空生产库并重建。",
+      "answerPreview": "# Report\n\n结论：根因一定是数据库损坏。建议立即清空生产库并重建。"
+    }
+  ]
+}

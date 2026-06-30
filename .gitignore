@@ -54,6 +54,7 @@ uploads/
 !harness/**/*.py
 __pycache__/
 *.pyc
+harness/**/reports/*.json
 
 ### docker
 /volumes

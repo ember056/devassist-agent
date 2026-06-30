@@ -113,6 +113,15 @@ rag:
     enabled: true
     top-k: 3
 
+benchmark:
+  judge:
+    enabled: false
+    model: ${DASHSCOPE_JUDGE_MODEL:qwen-plus}
+    temperature: 0.0
+    timeout-ms: ${DASHSCOPE_JUDGE_TIMEOUT_MS:60000}
+    pass-threshold: 4.0
+    max-cases-per-run: 30
+
 chat:
   memory:
     redis-enabled: true

@@ -1,0 +1,35 @@
+{
+  "id": "incident_mq_backlog",
+  "title": "settlement-consumer message backlog",
+  "type": "synthetic_ticket",
+  "service": "settlement-consumer",
+  "severity": "P2",
+  "createdAt": "2026-06-30T11:00:00+08:00",
+  "summary": "结算消息消费延迟持续增长，consumer lag 超过 120000，消费者日志出现下游数据库写入超时。",
+  "signals": {
+    "alerts": [
+      "MessageQueueBacklog"
+    ],
+    "logs": [
+      "consumer process timeout, topic=settlement-event, partition=6",
+      "retry queue size increased",
+      "database write timeout while processing settlement message"
+    ],
+    "metrics": [
+      "consumer_lag=120000",
+      "producer_rate=1800_msg_per_sec",
+      "consumer_rate=900_msg_per_sec"
+    ]
+  },
+  "expectedRootCause": "MQ backlog",
+  "expectedSources": [
+    "mq_backlog.md"
+  ],
+  "expectedEvidence": [
+    "consumer lag",
+    "retry queue",
+    "downstream dependency"
+  ],
+  "notes": "Synthetic sanitized incident. Useful for testing dependency-aware diagnosis."
+}
+

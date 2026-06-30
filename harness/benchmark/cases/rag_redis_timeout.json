@@ -1,0 +1,48 @@
+{
+  "id": "bench_rag_redis_timeout",
+  "name": "Benchmark RAG Redis 超时与缓存退化",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-redis",
+    "Question": "支付接口变慢，Redis connection timeout 增多且缓存命中率下降，应该怎么分析？请引用知识库。"
+  },
+  "labels": {
+    "expectedSources": [
+      "redis_timeout.md"
+    ],
+    "expectedEvidence": [
+      "Redis connection timeout",
+      "cache hit rate",
+      "big key"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}
+

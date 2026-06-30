@@ -1,0 +1,36 @@
+{
+  "id": "incident_db_connection_pool",
+  "title": "order-service database query timeout",
+  "type": "synthetic_ticket",
+  "service": "order-service",
+  "severity": "P1",
+  "createdAt": "2026-06-30T09:20:00+08:00",
+  "summary": "订单查询接口 P95 从 180ms 升至 5s 以上，应用日志出现 Database query timeout，连接池 active 接近 max。",
+  "signals": {
+    "alerts": [
+      "HighErrorRate",
+      "DatabaseConnectionPoolExhausted"
+    ],
+    "logs": [
+      "SQLTransientConnectionException: Connection is not available, request timed out after 3000ms",
+      "Database query timeout on /api/orders/{id}",
+      "HikariPool active=50 idle=0 waiting=38 max=50"
+    ],
+    "metrics": [
+      "api_p95_latency_ms=5200",
+      "db_slow_query_count=86",
+      "pool_active_ratio=1.0"
+    ]
+  },
+  "expectedRootCause": "Database connection pool exhaustion",
+  "expectedSources": [
+    "db_connection_pool.md"
+  ],
+  "expectedEvidence": [
+    "Database query timeout",
+    "connection pool",
+    "active connections"
+  ],
+  "notes": "Synthetic sanitized incident. Inspired by common SRE runbook patterns, not copied from any enterprise ticket."
+}
+

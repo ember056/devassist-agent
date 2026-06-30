@@ -1,0 +1,48 @@
+{
+  "id": "bench_rag_mq_backlog",
+  "name": "Benchmark RAG MQ 堆积 Runbook",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-mq",
+    "Question": "settlement-consumer 的 consumer lag 持续上升，消息堆积应该按什么步骤排查？请引用知识库。"
+  },
+  "labels": {
+    "expectedSources": [
+      "mq_backlog.md"
+    ],
+    "expectedEvidence": [
+      "consumer lag",
+      "retry queue",
+      "downstream dependency"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}
+

@@ -1,0 +1,59 @@
+{
+  "id": "bench_aiops_pod_restart",
+  "name": "Benchmark AIOps Pod 重启与 OOMKilled",
+  "category": "aiops",
+  "capabilities": [
+    "hypothesis_graph",
+    "evidence_collection",
+    "confidence_update",
+    "contradiction_filter",
+    "benchmark_labels"
+  ],
+  "endpoint": "/api/ai_ops",
+  "payload": {
+    "userRequest": "order-service 发布后多个 pod 重启，事件里有 OOMKilled 和 CrashLoopBackOff，接口错误率升高，请给出根因分析。"
+  },
+  "labels": {
+    "expectedRootCause": "Runtime restart, crash, or container instability",
+    "expectedSources": [
+      "pod_restart.md"
+    ],
+    "expectedEvidence": [
+      "OOMKilled",
+      "CrashLoopBackOff",
+      "restart"
+    ],
+    "expectedSections": [
+      "Hypothesis Ranking",
+      "Confidence Update Trace",
+      "Evidence Collected",
+      "Recommended Next Actions"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "AIOps Hypothesis Graph Analysis Report",
+      "Hypothesis Ranking",
+      "Confidence Update Trace",
+      "Evidence Collected",
+      "Recommended Next Actions"
+    ],
+    "not_contains": [
+      "AI Ops analysis failed",
+      "No hypothesis was generated"
+    ],
+    "regex": [
+      "Runtime restart, crash, or container instability\\s*\\|\\s*INFRA\\s*\\|",
+      "Status:\\s+(ACTIVE|CONFIRMED|PRUNED|REJECTED)"
+    ],
+    "sse_types": [
+      "task",
+      "content",
+      "done"
+    ],
+    "sse_trace_id": true,
+    "sse_task_id": true,
+    "max_duration_ms": 180000
+  }
+}
+

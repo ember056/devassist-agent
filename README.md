@@ -43,6 +43,7 @@ flowchart TD
 - AIOps Hypothesis Graph：把候选根因、证据、置信度更新和剪枝过程显式建模。
 - AIOps 任务化执行：每次诊断都会生成 `taskId` 和 `traceId`，支持状态查询和本地 JSON 快照。
 - 全链路 trace：记录 Chat、RAG、工具调用、AIOps workflow 的关键阶段、耗时、错误和缓存命中。
+- 脱敏 Benchmark 数据集：提供模拟 Runbook、研发工单和标注 case，用于比较 RAG/AIOps 升级前后的质量。
 
 ## RAG Flow / RAG 查询流程
 
@@ -270,6 +271,12 @@ curl -X POST http://localhost:9900/api/upload \
   -F "file=@aiops-docs/cpu_high_usage.md"
 ```
 
+也可以一键上传 `aiops-docs` 中的示例 Runbook：
+
+```bash
+python harness/bootstrap_docs.py --base-url http://localhost:9900
+```
+
 当前本地解析能力：
 
 - `txt` / `log`：按原生文本解析。
@@ -415,6 +422,48 @@ python harness/runner.py --category aiops --fail-fast
 ```
 
 报告会输出总通过率、按 `category` 的通过情况，以及按 `capabilities` 的能力覆盖情况，便于判断是 RAG、普通 Chat 还是 AIOps workflow 发生了退化。
+
+如果要做升级前后 Benchmark，可以运行带标注的数据集：
+
+```bash
+python harness/bootstrap_docs.py --base-url http://localhost:9900
+python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/baseline.json
+```
+
+Benchmark case 增加了 `labels` 字段：
+
+```text
+expectedSources     期望命中的 Runbook 来源
+expectedRootCause   AIOps 期望根因
+expectedEvidence    期望覆盖的关键证据
+expectedSections    期望报告结构
+```
+
+报告中会额外汇总：
+
+```text
+Source Hit Rate
+RootCause Hit Rate
+Structure Hit Rate
+```
+
+离线 LLM-as-Judge 可以进一步评估语义质量：
+
+```bash
+python harness/judge_runner.py --input harness/reports/latest-report.json --output harness/benchmark/reports/judge-latest.json
+```
+
+Judge 默认使用 `qwen-plus`，通过 `DASHSCOPE_API_KEY` 调用 DashScope OpenAI-compatible 接口。它只作为 Benchmark 离线评估，不进入在线回答链路；评估结果需要和 Source Hit、RootCause Hit、结构通过率、延迟等确定性指标一起判断。
+
+Benchmark 数据集说明：
+
+```text
+harness/benchmark/tickets/   脱敏模拟研发工单
+harness/benchmark/cases/     带 labels 的 Benchmark case
+harness/benchmark/sources.md 公开资料参考边界说明
+```
+
+这些数据不是企业真实工单，而是参考公开 SRE Runbook、Prometheus Operator Runbooks、Google SRE incident response 等资料的结构后构造的 synthetic benchmark data，用于可复现实验和面试讲解。
 
 ## Development Notes / 开发提示
 

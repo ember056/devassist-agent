@@ -1,0 +1,36 @@
+{
+  "id": "incident_pod_restart",
+  "title": "order-service pod restart and OOMKilled",
+  "type": "synthetic_ticket",
+  "service": "order-service",
+  "severity": "P1",
+  "createdAt": "2026-06-30T13:45:00+08:00",
+  "summary": "订单服务多个副本重启，Kubernetes event 显示 OOMKilled，发布后 10 分钟开始出现 CrashLoopBackOff。",
+  "signals": {
+    "alerts": [
+      "PodRestartHigh",
+      "KubePodCrashLooping"
+    ],
+    "logs": [
+      "Pod restart event: pod-order-service, reason: OOMKilled",
+      "CrashLoopBackOff after deployment v2.3.8",
+      "previous container logs show Java heap usage reached limit"
+    ],
+    "metrics": [
+      "restart_count=3",
+      "container_memory_usage_ratio=0.98",
+      "api_error_rate=0.18"
+    ]
+  },
+  "expectedRootCause": "Runtime restart, crash, or container instability",
+  "expectedSources": [
+    "pod_restart.md"
+  ],
+  "expectedEvidence": [
+    "OOMKilled",
+    "CrashLoopBackOff",
+    "restart_count"
+  ],
+  "notes": "Synthetic sanitized incident. Inspired by common Kubernetes runbook categories."
+}
+

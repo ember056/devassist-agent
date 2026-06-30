@@ -1,0 +1,36 @@
+{
+  "id": "incident_redis_timeout",
+  "title": "payment-service Redis timeout and cache hit drop",
+  "type": "synthetic_ticket",
+  "service": "payment-service",
+  "severity": "P2",
+  "createdAt": "2026-06-30T10:15:00+08:00",
+  "summary": "支付详情接口变慢，Redis 访问超时增加，缓存命中率从 92% 降至 63%，数据库 QPS 明显上升。",
+  "signals": {
+    "alerts": [
+      "RedisTimeout",
+      "CacheHitRateDrop"
+    ],
+    "logs": [
+      "Redis connection timeout: redis-cluster-01:6379 timed out after 3000ms",
+      "cache miss burst for key prefix payment:detail",
+      "slowlog contains HGETALL payment:detail:large"
+    ],
+    "metrics": [
+      "redis_cmd_latency_p95_ms=180",
+      "cache_hit_rate=0.63",
+      "db_qps=3x_baseline"
+    ]
+  },
+  "expectedRootCause": "Redis timeout",
+  "expectedSources": [
+    "redis_timeout.md"
+  ],
+  "expectedEvidence": [
+    "Redis connection timeout",
+    "cache hit rate",
+    "big key"
+  ],
+  "notes": "Synthetic sanitized incident. Designed for RAG and AIOps benchmark coverage."
+}
+

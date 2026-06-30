@@ -23,6 +23,13 @@ KNOWN_ASSERTIONS = {
 }
 
 
+def get_case_question(case: dict):
+    payload = case.get("payload", {})
+    if not isinstance(payload, dict):
+        return ""
+    return payload.get("Question") or payload.get("question") or payload.get("userRequest") or ""
+
+
 def load_cases(cases_dir: Path):
     cases = []
     for path in sorted(cases_dir.glob("*.json")):
@@ -46,6 +53,16 @@ def validate_case(case: dict):
 
     if "payload" in case and not isinstance(case.get("payload"), dict):
         errors.append(f"{case_id}: payload must be an object")
+
+    labels = case.get("labels", {})
+    if labels and not isinstance(labels, dict):
+        errors.append(f"{case_id}: labels must be an object")
+    elif isinstance(labels, dict):
+        for list_field in ["expectedSources", "expectedEvidence", "expectedSections"]:
+            if list_field in labels and not isinstance(labels.get(list_field), list):
+                errors.append(f"{case_id}: labels.{list_field} must be a list")
+        if "expectedRootCause" in labels and not isinstance(labels.get("expectedRootCause"), str):
+            errors.append(f"{case_id}: labels.expectedRootCause must be a string")
 
     assertions = case.get("assertions", {})
     if not isinstance(assertions, dict):
@@ -243,6 +260,44 @@ def evaluate_assertions(response_model: dict, assertions: dict, duration_ms: int
     return failures
 
 
+def evaluate_labels(answer: str, labels: dict):
+    if not isinstance(labels, dict):
+        labels = {}
+
+    expected_sources = labels.get("expectedSources", [])
+    expected_evidence = labels.get("expectedEvidence", [])
+    expected_sections = labels.get("expectedSections", [])
+    expected_root_cause = labels.get("expectedRootCause", "")
+
+    source_hits = [source for source in expected_sources if source and source in answer]
+    evidence_hits = [evidence for evidence in expected_evidence if evidence and evidence in answer]
+    section_hits = [section for section in expected_sections if section and section in answer]
+    root_cause_hit = bool(expected_root_cause and expected_root_cause in answer)
+
+    failures = []
+    if expected_sources and not source_hits:
+        failures.append("expected source not found: " + ", ".join(expected_sources))
+    if expected_root_cause and not root_cause_hit:
+        failures.append(f"expected root cause not found: {expected_root_cause}")
+    if expected_sections and len(section_hits) < len(expected_sections):
+        missing = [section for section in expected_sections if section not in section_hits]
+        failures.append("expected section not found: " + ", ".join(missing))
+
+    return {
+        "expectedSources": expected_sources,
+        "sourceHits": source_hits,
+        "sourceHit": not expected_sources or bool(source_hits),
+        "expectedRootCause": expected_root_cause,
+        "rootCauseHit": not expected_root_cause or root_cause_hit,
+        "expectedEvidence": expected_evidence,
+        "evidenceHits": evidence_hits,
+        "expectedSections": expected_sections,
+        "sectionHits": section_hits,
+        "structureHit": not expected_sections or len(section_hits) == len(expected_sections),
+        "failures": failures,
+    }
+
+
 def run_case(case: dict, base_url: str, timeout: int):
     endpoint = case.get("endpoint", "/api/chat")
     url = base_url.rstrip("/") + endpoint
@@ -254,6 +309,8 @@ def run_case(case: dict, base_url: str, timeout: int):
         response_model = parse_response(response_text, content_type)
         answer = response_model.get("answer", "")
         failures = evaluate_assertions(response_model, case.get("assertions", {}), duration_ms)
+        label_metrics = evaluate_labels(answer, case.get("labels", {}))
+        failures.extend(label_metrics["failures"])
         passed = status == 200 and not failures
         if status != 200:
             failures.append(f"http status is {status}")
@@ -263,6 +320,7 @@ def run_case(case: dict, base_url: str, timeout: int):
         response_text = ""
         answer = ""
         failures = [f"request failed: {exc}"]
+        label_metrics = evaluate_labels(answer, case.get("labels", {}))
         passed = False
 
     duration_ms = int((time.time() - started) * 1000)
@@ -271,6 +329,9 @@ def run_case(case: dict, base_url: str, timeout: int):
         "name": case.get("name"),
         "category": case.get("category"),
         "capabilities": case.get("capabilities", []),
+        "question": get_case_question(case),
+        "labels": case.get("labels", {}),
+        "labelMetrics": label_metrics,
         "path": case.get("_path"),
         "endpoint": endpoint,
         "passed": passed,
@@ -278,6 +339,7 @@ def run_case(case: dict, base_url: str, timeout: int):
         "status": status,
         "contentType": content_type,
         "failures": failures,
+        "answer": answer,
         "answerPreview": answer[:800],
     }
 
@@ -291,6 +353,14 @@ def write_report(report: dict, output: Path):
 def summarize_results(results: list):
     by_category = {}
     capabilities = {}
+    label_totals = {
+        "sourceLabelTotal": 0,
+        "sourceHit": 0,
+        "rootCauseLabelTotal": 0,
+        "rootCauseHit": 0,
+        "structureLabelTotal": 0,
+        "structureHit": 0,
+    }
     for result in results:
         category = result.get("category") or "uncategorized"
         category_summary = by_category.setdefault(category, {"total": 0, "passed": 0, "failed": 0})
@@ -308,7 +378,31 @@ def summarize_results(results: list):
             else:
                 capability_summary["failed"] += 1
 
-    return by_category, capabilities
+        label_metrics = result.get("labelMetrics", {})
+        if label_metrics.get("expectedSources"):
+            label_totals["sourceLabelTotal"] += 1
+            if label_metrics.get("sourceHit"):
+                label_totals["sourceHit"] += 1
+        if label_metrics.get("expectedRootCause"):
+            label_totals["rootCauseLabelTotal"] += 1
+            if label_metrics.get("rootCauseHit"):
+                label_totals["rootCauseHit"] += 1
+        if label_metrics.get("expectedSections"):
+            label_totals["structureLabelTotal"] += 1
+            if label_metrics.get("structureHit"):
+                label_totals["structureHit"] += 1
+
+    label_summary = {
+        **label_totals,
+        "sourceHitRate": round(label_totals["sourceHit"] / label_totals["sourceLabelTotal"], 4)
+        if label_totals["sourceLabelTotal"] else 0.0,
+        "rootCauseHitRate": round(label_totals["rootCauseHit"] / label_totals["rootCauseLabelTotal"], 4)
+        if label_totals["rootCauseLabelTotal"] else 0.0,
+        "structureHitRate": round(label_totals["structureHit"] / label_totals["structureLabelTotal"], 4)
+        if label_totals["structureLabelTotal"] else 0.0,
+    }
+
+    return by_category, capabilities, label_summary
 
 
 def print_case_list(cases: list):
@@ -372,7 +466,7 @@ def main():
 
     passed_count = sum(1 for result in results if result["passed"])
     failed_count = len(results) - passed_count
-    by_category, capabilities = summarize_results(results)
+    by_category, capabilities, label_summary = summarize_results(results)
     report = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "baseUrl": args.base_url,
@@ -383,6 +477,7 @@ def main():
         "failed": failed_count,
         "byCategory": by_category,
         "capabilityCoverage": capabilities,
+        "labelMetrics": label_summary,
         "results": results,
     }
     write_report(report, output)
@@ -392,6 +487,11 @@ def main():
     print("By category:")
     for category, item in sorted(by_category.items()):
         print(f"  - {category}: {item['passed']}/{item['total']} passed")
+    if any(label_summary[key] for key in ["sourceLabelTotal", "rootCauseLabelTotal", "structureLabelTotal"]):
+        print("Label metrics:")
+        print(f"  - Source Hit Rate: {label_summary['sourceHitRate']}")
+        print(f"  - RootCause Hit Rate: {label_summary['rootCauseHitRate']}")
+        print(f"  - Structure Hit Rate: {label_summary['structureHitRate']}")
     print(f"Report: {output}")
 
     return 0 if failed_count == 0 else 1

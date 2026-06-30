@@ -84,6 +84,18 @@ python harness/runner.py --base-url http://localhost:9900
 python harness/runner.py --cases harness/cases
 ```
 
+一键把项目内示例 Runbook 上传到知识库：
+
+```bash
+python harness/bootstrap_docs.py --base-url http://localhost:9900
+```
+
+运行带标注 Benchmark 数据集：
+
+```bash
+python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/baseline.json
+```
+
 只校验测试集 schema，不请求服务：
 
 ```bash
@@ -150,6 +162,31 @@ python harness/runner.py --fail-fast
 | `sse_task_id` | SSE 响应必须包含 taskId |
 | `max_duration_ms` | 端到端耗时上限 |
 
+## Benchmark Labels
+
+`harness/benchmark/cases` 中的用例比普通回归用例多了 `labels` 字段：
+
+```json
+{
+  "labels": {
+    "expectedSources": ["db_connection_pool.md"],
+    "expectedRootCause": "Database connection pool exhaustion",
+    "expectedEvidence": ["Database query timeout", "connection pool"],
+    "expectedSections": ["Hypothesis Ranking", "Evidence Collected"]
+  }
+}
+```
+
+这些字段用于生成确定性指标：
+
+| 指标 | 含义 |
+|---|---|
+| Source Hit Rate | 回答是否命中期望来源 |
+| RootCause Hit Rate | AIOps 报告是否命中期望根因 |
+| Structure Hit Rate | 报告是否包含期望结构 |
+
+普通 Harness 看链路是否退化；Benchmark labels 用来回答“升级前后到底有没有变好”。
+
 ## 报告
 
 默认输出到：
@@ -185,3 +222,76 @@ harness/reports/latest-report.json
 - 增加 Faithfulness 自动评分阈值。
 - 增加真实根因标签，统计 Top-1 Accuracy、Top-K Recall 和误剪率。
 - 接入 CI，在每次改 Prompt 或 RAG 策略后自动跑评估。
+
+## LLM-as-Judge / 离线语义评估
+
+`judge_runner.py` 可以读取 Harness 报告，对回答做离线 LLM-as-Judge 评分。它不进入在线回答链路，默认只作为 Benchmark 质量评估补充。
+
+运行普通 Harness：
+
+```bash
+python harness/runner.py --base-url http://localhost:9900 --output harness/reports/baseline.json
+```
+
+运行 Judge：
+
+```bash
+python harness/judge_runner.py --input harness/reports/baseline.json --output harness/benchmark/reports/judge-baseline.json
+```
+
+只构造 Judge 输入、不调用模型：
+
+```bash
+python harness/judge_runner.py --input harness/judge_selftest/sample-report.json --dry-run
+```
+
+环境变量：
+
+```text
+DASHSCOPE_API_KEY          Judge 调用密钥
+DASHSCOPE_JUDGE_MODEL      默认 qwen-plus
+DASHSCOPE_JUDGE_ENDPOINT   默认 DashScope OpenAI-compatible endpoint
+DASHSCOPE_JUDGE_TIMEOUT    默认 60 秒
+```
+
+Judge 输出指标：
+
+- Judge Pass Rate
+- Average Overall Score
+- Average Faithfulness Score
+- Average Actionability Score
+- Unsupported Claim Count
+- Critical Issue Count
+- Low Score Cases
+- Judge Parse Failure Count
+- Rough Cost Estimate
+
+注意：
+
+- Judge 结果不能单独作为最终结论，必须和确定性指标一起看。
+- Judge prompt 固定要求 JSON 输出、禁止使用外部知识、列出 unsupportedClaims 和 criticalIssues。
+- Judge 失败不会影响原始 Harness 报告。
+
+## Synthetic Benchmark Data
+
+当前项目没有真实企业知识库和研发工单，所以采用脱敏模拟数据：
+
+```text
+aiops-docs/
+  db_connection_pool.md
+  redis_timeout.md
+  mq_backlog.md
+  pod_restart.md
+
+harness/benchmark/tickets/
+  incident_db_connection_pool.json
+  incident_redis_timeout.json
+  incident_mq_backlog.json
+  incident_pod_restart.json
+```
+
+这些样例参考公开资料的结构和通用故障类型，但不复制真实企业内部内容。公开参考边界记录在：
+
+```text
+harness/benchmark/sources.md
+```

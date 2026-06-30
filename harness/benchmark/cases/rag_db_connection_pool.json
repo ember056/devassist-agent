@@ -1,0 +1,48 @@
+{
+  "id": "bench_rag_db_connection_pool",
+  "name": "Benchmark RAG 数据库连接池耗尽 Runbook",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-db-pool",
+    "Question": "order-service 出现 Database query timeout，怀疑连接池耗尽，应该如何排查和止损？请引用知识库。"
+  },
+  "labels": {
+    "expectedSources": [
+      "db_connection_pool.md"
+    ],
+    "expectedEvidence": [
+      "Database query timeout",
+      "connection pool",
+      "active connections"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}
+
