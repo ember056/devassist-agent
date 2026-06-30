@@ -92,11 +92,42 @@ public class AiOpsReportService {
             report.append("| ").append(evidence.getId())
                     .append(" | ").append(evidence.getType())
                     .append(" | ").append(evidence.getSource())
-                    .append(" | ").append(evidence.getSummary())
+                    .append(" | ").append(evidenceSummary(evidence))
                     .append(" | ").append(String.join(", ", evidence.getRelatedHypothesisIds()))
                     .append(" |\n");
         }
         report.append("\n");
+    }
+
+    private String evidenceSummary(EvidenceNode evidence) {
+        if (evidence.getType() != EvidenceType.RUNBOOK) {
+            return evidence.getSummary();
+        }
+        String content = evidence.getContent();
+        String sourceFiles = extractSourceFiles(content);
+        if (sourceFiles.isBlank()) {
+            return evidence.getSummary();
+        }
+        return evidence.getSummary() + " (" + sourceFiles + ")";
+    }
+
+    private String extractSourceFiles(String content) {
+        if (content == null || content.isBlank()) {
+            return "";
+        }
+        int key = content.indexOf("\"sourceFiles\"");
+        if (key < 0) {
+            return "";
+        }
+        int start = content.indexOf('[', key);
+        int end = start < 0 ? -1 : content.indexOf(']', start);
+        if (start < 0 || end < 0) {
+            return "";
+        }
+        return content.substring(start + 1, end)
+                .replace("\"", "")
+                .replace("\\", "")
+                .trim();
     }
 
     private void appendRecommendations(StringBuilder report, HypothesisNode best) {

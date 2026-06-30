@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 内部文档查询工具
@@ -71,6 +72,7 @@ public class InternalDocsTools {
             // 将搜索结果转换为 JSON 格式
             String resultJson = objectMapper.writeValueAsString(new TrustedToolResult(
                     "success",
+                    "Answer only with facts supported by results.content. Cite metadata._file_name. Do not invent commands, metrics, thresholds, tools, or document names.",
                     trustedRagResult.getPreprocess().originalQuery(),
                     trustedRagResult.getPreprocess().finalQuery(),
                     trustedRagResult.getPreprocess().rewrittenQuery(),
@@ -79,6 +81,10 @@ public class InternalDocsTools {
                     trustedRagResult.getRoute().getComplexity().name(),
                     trustedRagResult.getRoute().getRetrievalMode().name(),
                     trustedRagResult.isRerankApplied(),
+                    searchResults.stream()
+                            .map(InternalDocsTools::sourceName)
+                            .distinct()
+                            .collect(Collectors.toList()),
                     searchResults
             ));
             
@@ -94,6 +100,7 @@ public class InternalDocsTools {
 
     private record TrustedToolResult(
             String status,
+            String answerRules,
             String originalQuery,
             String finalQuery,
             String rewrittenQuery,
@@ -102,7 +109,26 @@ public class InternalDocsTools {
             String queryComplexity,
             String retrievalMode,
             boolean rerankApplied,
+            List<String> sourceFiles,
             List<VectorSearchService.SearchResult> results
     ) {
+    }
+
+    private static String sourceName(VectorSearchService.SearchResult result) {
+        String metadata = result.getMetadata();
+        if (metadata == null) {
+            return "unknown";
+        }
+        int key = metadata.indexOf("\"_file_name\"");
+        if (key < 0) {
+            return metadata;
+        }
+        int colon = metadata.indexOf(':', key);
+        int firstQuote = metadata.indexOf('"', colon + 1);
+        int secondQuote = firstQuote < 0 ? -1 : metadata.indexOf('"', firstQuote + 1);
+        if (firstQuote < 0 || secondQuote < 0) {
+            return metadata;
+        }
+        return metadata.substring(firstQuote + 1, secondQuote);
     }
 }

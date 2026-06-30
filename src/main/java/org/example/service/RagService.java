@@ -162,8 +162,10 @@ public class RagService {
             "- 是否触发 Rerank：%s\n\n" +
             "参考资料：\n%s\n" +
             "用户问题：%s\n\n" +
-            "请基于上述参考资料给出准确、详细的回答。如果参考资料中没有相关信息，请明确说明。" +
-            "回答末尾必须添加“参考来源”小节，列出使用到的参考资料编号。",
+            "请严格基于上述参考资料回答，不要使用外部知识扩写。\n" +
+            "禁止编造参考资料中没有出现的命令、指标名、阈值、配置项、工具链或文档名。\n" +
+            "如果参考资料中没有相关信息，请明确说明证据不足，并列出需要补充的证据。\n" +
+            "回答末尾必须添加“参考来源”小节，列出使用到的参考资料编号和 metadata 中的 _file_name。",
             trustedRagResult.getPreprocess().originalQuery(),
             trustedRagResult.getPreprocess().finalQuery(),
             trustedRagResult.getPreprocess().rewriteAccepted() ? "是" : "否",

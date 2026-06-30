@@ -41,7 +41,7 @@ public class ChatService {
     @Autowired(required = false)  // Mock 模式下才注册，所以设置为 optional,真实环境通过mcp配置注入
     private QueryLogsTools queryLogsTools;
 
-    @Autowired
+    @Autowired(required = false)
     private ToolCallbackProvider tools;
 
     @Value("${spring.ai.dashscope.api-key}")
@@ -78,7 +78,7 @@ public class ChatService {
      * 创建标准对话 ChatModel（默认参数）
      */
     public DashScopeChatModel createStandardChatModel(DashScopeApi dashScopeApi) {
-        return createChatModel(dashScopeApi, 0.7, 2000, 0.9);
+        return createChatModel(dashScopeApi, 0.3, 1800, 0.8);
     }
 
     /**
@@ -95,6 +95,12 @@ public class ChatService {
         systemPromptBuilder.append("当用户需要查询公司内部文档、流程、最佳实践或技术指南时，使用 queryInternalDocs 工具。\n");
         systemPromptBuilder.append("当用户需要查询 Prometheus 告警、监控指标或系统告警状态时，使用 queryPrometheusAlerts 工具。\n");
         systemPromptBuilder.append("当用户需要查询腾讯云日志时，请调用腾讯云mcp服务查询,默认查询地域ap-guangzhou,查询时间范围为近一个月。\n\n");
+        systemPromptBuilder.append("回答知识库、Runbook、排障类问题时必须遵守：\n");
+        systemPromptBuilder.append("1. 只能依据 queryInternalDocs 返回的 results.content 和 metadata 回答。\n");
+        systemPromptBuilder.append("2. 不要编造未出现在来源中的命令、指标名、阈值、配置项、工具链或文档名。\n");
+        systemPromptBuilder.append("3. 如果来源不足以支持结论，明确说证据不足，并列出还需要补充的日志或指标。\n");
+        systemPromptBuilder.append("4. 参考来源必须列出 metadata._file_name；不要引用没有命中的文件。\n");
+        systemPromptBuilder.append("5. 高风险操作，例如重启、删除、扩容、修改超时或连接池参数，必须说明需要先保留证据并确认影响面。\n\n");
         
         // 添加历史消息
         if (!history.isEmpty()) {
@@ -134,6 +140,9 @@ public class ChatService {
      * 获取工具回调列表，mcp服务提供的工具
      */
     public ToolCallback[] getToolCallbacks() {
+        if (tools == null) {
+            return new ToolCallback[0];
+        }
         return tools.getToolCallbacks();
     }
 
@@ -141,7 +150,7 @@ public class ChatService {
      * 记录可用工具列表：mcp服务提供的工具
      */
     public void logAvailableTools() {
-        ToolCallback[] toolCallbacks = tools.getToolCallbacks();
+        ToolCallback[] toolCallbacks = getToolCallbacks();
         logger.info("可用工具列表:");
         for (ToolCallback toolCallback : toolCallbacks) {
             logger.info(">>> {}", toolCallback.getToolDefinition().name());

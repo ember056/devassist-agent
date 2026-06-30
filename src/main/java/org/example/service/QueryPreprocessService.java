@@ -1,6 +1,8 @@
 package org.example.service;
 
+import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,10 +24,10 @@ public class QueryPreprocessService {
     );
 
     @Autowired
-    private ChatService chatService;
-
-    @Autowired
     private VectorEmbeddingService embeddingService;
+
+    @Value("${spring.ai.dashscope.api-key}")
+    private String dashScopeApiKey;
 
     @Value("${rag.query-rewrite.enabled:true}")
     private boolean rewriteEnabled;
@@ -116,7 +118,17 @@ public class QueryPreprocessService {
     }
 
     private String rewriteQuery(String query) {
-        DashScopeChatModel chatModel = chatService.createStandardChatModel(chatService.createDashScopeApi());
+        DashScopeChatModel chatModel = DashScopeChatModel.builder()
+                .dashScopeApi(DashScopeApi.builder()
+                        .apiKey(dashScopeApiKey)
+                        .build())
+                .defaultOptions(DashScopeChatOptions.builder()
+                        .withModel(DashScopeChatModel.DEFAULT_MODEL_NAME)
+                        .withTemperature(0.3)
+                        .withMaxToken(512)
+                        .withTopP(0.8)
+                        .build())
+                .build();
         String prompt = """
                 Rewrite the user question into a concise query for internal knowledge-base retrieval.
                 Requirements:

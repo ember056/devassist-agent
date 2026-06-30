@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Service
 public class TrustedRagRetrievalService {
@@ -78,18 +79,23 @@ public class TrustedRagRetrievalService {
         ))) {
             rawResults = hybridRetrievalService.retrieve(
                     preprocessResult.finalQuery(),
+                    preprocessResult.originalQuery(),
                     topK,
                     route.getRetrievalMode()
             );
             span.success(Map.of("rawResultCount", rawResults.size()));
         }
 
+        String rerankQuery = rerankQuery(preprocessResult);
         boolean rerankApplied = route.complex()
-                && rerankService.shouldRerank(preprocessResult.finalQuery(), rawResults);
+                && rerankService.shouldRerank(rerankQuery, rawResults);
         List<VectorSearchService.SearchResult> finalResults =
                 rerankApplied
-                        ? rerankService.rerank(preprocessResult.finalQuery(), rawResults)
+                        ? rerankService.rerank(rerankQuery, rawResults)
                         : rawResults;
+        finalResults = finalResults.stream()
+                .limit(topK)
+                .collect(Collectors.toList());
         traceService.event("rag", "rerank_decision", Map.of(
                 "rerankApplied", rerankApplied,
                 "finalResultCount", finalResults.size()
@@ -107,6 +113,18 @@ public class TrustedRagRetrievalService {
         for (int i = 0; i < results.size(); i++) {
             results.get(i).setSourceIndex(i + 1);
         }
+    }
+
+    private String rerankQuery(QueryPreprocessService.QueryPreprocessResult preprocessResult) {
+        if (preprocessResult == null) {
+            return "";
+        }
+        String finalQuery = preprocessResult.finalQuery() == null ? "" : preprocessResult.finalQuery();
+        String originalQuery = preprocessResult.originalQuery() == null ? "" : preprocessResult.originalQuery();
+        if (originalQuery.isBlank() || originalQuery.equalsIgnoreCase(finalQuery)) {
+            return finalQuery;
+        }
+        return finalQuery + " " + originalQuery;
     }
 
     private void putCache(String key, TrustedRagResult result) {

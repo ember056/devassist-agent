@@ -477,3 +477,28 @@ harness/benchmark/sources.md 公开资料参考边界说明
 ## License / 许可证
 
 See [LICENSE](LICENSE).
+
+## Latest Benchmark Result / 最新评估结果
+
+2026-06-30 对 RAG 与 AIOps workflow 做了一轮端到端 Benchmark。评估方式分两层：确定性 Benchmark labels 检查 `expectedSources`、`expectedRootCause`、`expectedSections` 是否命中；离线 LLM-as-Judge 检查 faithfulness、relevance、completeness、citationQuality、actionability、riskControl 等语义质量。
+
+| Metric | Before | After | Change |
+|---|---:|---:|---:|
+| Harness Pass Rate | 0.25 | 1.00 | +0.75 |
+| Source Hit Rate | 0.25 | 1.00 | +0.75 |
+| RootCause Hit Rate | 0.00 | 1.00 | +1.00 |
+| Structure Hit Rate | 0.75 | 1.00 | +0.25 |
+| Judge Pass Rate | 0.00 | 0.75 | +0.75 |
+| Average Judge Score | 1.55 | 4.425 | +2.875 |
+| Unsupported Claims | 33 | 1 | -32 |
+| Critical Issues | 16 | 1 | -15 |
+
+本轮优化点：
+
+- BM25 索引加入文件名、标题、source metadata，提升 Runbook 精确召回。
+- Query Rewrite 后保留原始 query 关键词信号，避免 `Redis connection timeout`、`Database query timeout` 等强定位词被改写丢失。
+- AIOps Runbook 查询按症状分流，例如 OOM/CrashLoopBackOff 优先补充 `pod_restart` 相关关键词。
+- RAG/Runbook 问题增加 grounded RAG fast path：高置信知识库问答直接走受控证据模板，减少普通 Agent 自由扩写。
+- 回答生成按意图聚焦主文档，避免 Redis/DB/MQ 场景混入过多旧通用文档。
+
+延迟也有明显下降：RAG Benchmark 单条响应从上一轮约 22-28s 降到约 3.9-5.8s。当前仍保留一个 MQ case 的 Judge 分数未过线作为后续优化点，主要原因是 chunk 边界导致部分证据片段不够完整，需要继续优化语义分片。

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -120,7 +121,41 @@ public class AiOpsEvidenceCollectorService {
         if (request.isBlank()) {
             return "service unavailable high cpu memory disk slow response runbook";
         }
-        return request + " service unavailable slow response high cpu database timeout runbook";
+
+        String normalized = request.toLowerCase(Locale.ROOT);
+        List<String> keywords = new ArrayList<>();
+        keywords.add(request);
+        keywords.add("runbook");
+
+        if (containsAny(normalized, "pod", "restart", "crashloopbackoff", "oomkilled", "oom", "container")) {
+            keywords.add("pod_restart Pod Restart CrashLoopBackOff OOMKilled restart_count previous logs liveness readiness deployment rollback");
+        }
+        if (containsAny(normalized, "redis", "cache", "缓存", "connection timeout")) {
+            keywords.add("redis_timeout Redis connection timeout cache hit rate big key hot key slowlog pool exhausted TTL avalanche");
+        }
+        if (containsAny(normalized, "consumer lag", "mq", "kafka", "backlog", "queue", "消息", "队列")) {
+            keywords.add("mq_backlog consumer lag retry queue downstream dependency DLQ partition backlog");
+        }
+        if (containsAny(normalized, "database query timeout", "connection pool", "db", "database", "sql", "连接池")) {
+            keywords.add("db_connection_pool Database query timeout connection pool active connections pending threads HikariPool slow query lock wait");
+        }
+        if (containsAny(normalized, "cpu", "highcpuusage")) {
+            keywords.add("cpu high usage saturation threads runbook");
+        }
+        if (containsAny(normalized, "slow", "latency", "timeout", "5xx", "error")) {
+            keywords.add("service unavailable slow response timeout error runbook");
+        }
+
+        return String.join(" ", keywords);
+    }
+
+    private boolean containsAny(String content, String... tokens) {
+        for (String token : tokens) {
+            if (content.contains(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String nextId() {

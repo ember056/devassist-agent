@@ -243,13 +243,13 @@ public class KeywordSearchService {
             int length
     ) {
         static IndexedDocument from(String id, String source, DocumentChunk chunk) {
-            List<String> terms = tokenize(chunk.getContent());
+            String metadata = buildMetadata(source, chunk);
+            String indexText = buildIndexText(source, chunk, metadata);
+            List<String> terms = tokenize(indexText);
             Map<String, Integer> termFrequency = new HashMap<>();
             for (String term : terms) {
                 termFrequency.merge(term, 1, Integer::sum);
             }
-
-            String metadata = buildMetadata(source, chunk);
 
             return new IndexedDocument(
                     id,
@@ -261,9 +261,40 @@ public class KeywordSearchService {
             );
         }
 
+        private static String buildIndexText(String source, DocumentChunk chunk, String metadata) {
+            StringBuilder text = new StringBuilder();
+            append(text, chunk.getContent());
+            append(text, chunk.getTitle());
+            append(text, source);
+            Path fileName = Paths.get(source).getFileName();
+            if (fileName != null) {
+                append(text, fileName.toString());
+            }
+            append(text, metadata);
+            if (chunk.getMetadata() != null && !chunk.getMetadata().isEmpty()) {
+                append(text, chunk.getMetadata().toString());
+            }
+            return text.toString();
+        }
+
+        private static void append(StringBuilder builder, String value) {
+            if (value != null && !value.isBlank()) {
+                builder.append(' ').append(value);
+            }
+        }
+
         private static String buildMetadata(String source, DocumentChunk chunk) {
             com.google.gson.JsonObject metadata = new com.google.gson.JsonObject();
             metadata.addProperty("_source", source);
+            Path fileName = Paths.get(source).getFileName();
+            if (fileName != null) {
+                metadata.addProperty("_file_name", fileName.toString());
+                String name = fileName.toString();
+                int dot = name.lastIndexOf('.');
+                if (dot >= 0) {
+                    metadata.addProperty("_extension", name.substring(dot));
+                }
+            }
             metadata.addProperty("chunkIndex", chunk.getChunkIndex());
             metadata.addProperty("title", chunk.getTitle() == null ? "" : chunk.getTitle());
             if (chunk.getPageNumber() != null) {

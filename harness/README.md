@@ -295,3 +295,34 @@ harness/benchmark/tickets/
 ```text
 harness/benchmark/sources.md
 ```
+
+## 2026-06-30 实测对比
+
+本轮评估使用同一批 `harness/benchmark/cases`，先导入 `aiops-docs`，再分别运行确定性 Benchmark 和离线 Judge：
+
+```bash
+python harness/bootstrap_docs.py --base-url http://localhost:9900
+python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/baseline-after-fix4.json
+python harness/judge_runner.py --input harness/benchmark/reports/baseline-after-fix4.json --output harness/benchmark/reports/judge-after-fix4.json
+```
+
+升级前后对比：
+
+| Metric | Before | After | Change |
+|---|---:|---:|---:|
+| Harness Pass Rate | 0.25 | 1.00 | +0.75 |
+| Source Hit Rate | 0.25 | 1.00 | +0.75 |
+| RootCause Hit Rate | 0.00 | 1.00 | +1.00 |
+| Structure Hit Rate | 0.75 | 1.00 | +0.25 |
+| Judge Pass Rate | 0.00 | 0.75 | +0.75 |
+| Average Judge Score | 1.55 | 4.425 | +2.875 |
+| Faithfulness Avg | 1.00 | 4.50 | +3.50 |
+| Citation Quality Avg | 1.25 | 4.25 | +3.00 |
+| Unsupported Claims | 33 | 1 | -32 |
+| Critical Issues | 16 | 1 | -15 |
+
+结论：
+
+- 确定性指标已经证明 RAG 来源命中、AIOps 根因命中和报告结构没有退化。
+- Judge 指标证明语义质量、忠实度、引用质量和风险控制也明显提升。
+- 唯一未完全过线的是 MQ case，主要暴露出 chunk 边界截断导致证据片段不完整的问题，后续应继续优化语义分片。

@@ -115,7 +115,7 @@ def post_json(url: str, payload: dict, timeout: int):
         data=body,
         headers={
             "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Accept": "application/json, text/event-stream"
         },
         method="POST",
     )

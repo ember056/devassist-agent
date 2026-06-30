@@ -8,8 +8,10 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 混合召回服务。
@@ -41,6 +43,37 @@ public class HybridRetrievalService {
             case BM25 -> markBm25(keywordSearchService.search(query, topK));
             case HYBRID -> hybrid(query, topK, candidateK);
         };
+    }
+
+    public List<VectorSearchService.SearchResult> retrieve(
+            String query,
+            String lexicalFallbackQuery,
+            int topK,
+            RetrievalMode mode
+    ) {
+        if (lexicalFallbackQuery == null || lexicalFallbackQuery.isBlank()
+                || lexicalFallbackQuery.equalsIgnoreCase(query)) {
+            return retrieve(query, topK, mode);
+        }
+
+        int candidateK = Math.max(topK, topK * Math.max(1, candidateMultiplier));
+        if (mode == RetrievalMode.VECTOR) {
+            return mergeById(
+                    markVector(vectorSearchService.searchSimilarDocuments(query, candidateK)),
+                    markBm25(keywordSearchService.search(lexicalFallbackQuery, candidateK))
+            ).stream()
+                    .limit(candidateK)
+                    .toList();
+        }
+        if (mode == RetrievalMode.BM25) {
+            return mergeById(
+                    markBm25(keywordSearchService.search(query, candidateK)),
+                    markBm25(keywordSearchService.search(lexicalFallbackQuery, candidateK))
+            ).stream()
+                    .limit(candidateK)
+                    .toList();
+        }
+        return hybrid(query, lexicalFallbackQuery, candidateK);
     }
 
     private List<VectorSearchService.SearchResult> hybrid(String query, int topK, int candidateK) {
@@ -78,8 +111,72 @@ public class HybridRetrievalService {
 
         return finalResults.stream()
                 .sorted(Comparator.comparing(VectorSearchService.SearchResult::getHybridScore).reversed())
-                .limit(topK)
+                .limit(candidateK)
                 .toList();
+    }
+
+    private List<VectorSearchService.SearchResult> hybrid(String query, String lexicalFallbackQuery, int candidateK) {
+        List<VectorSearchService.SearchResult> vectorResults =
+                vectorSearchService.searchSimilarDocuments(query, candidateK);
+        List<VectorSearchService.SearchResult> bm25Results =
+                mergeById(
+                        keywordSearchService.search(query, candidateK),
+                        keywordSearchService.search(lexicalFallbackQuery, candidateK)
+                );
+
+        Map<String, VectorSearchService.SearchResult> merged = new LinkedHashMap<>();
+        Map<String, Double> vectorScores = normalizeVectorScores(vectorResults);
+        Map<String, Double> bm25Scores = normalizeBm25Scores(bm25Results);
+
+        for (VectorSearchService.SearchResult result : vectorResults) {
+            result.setRetrievalMode("VECTOR");
+            merged.put(result.getId(), result);
+        }
+
+        for (VectorSearchService.SearchResult result : bm25Results) {
+            VectorSearchService.SearchResult existing = merged.get(result.getId());
+            if (existing == null) {
+                result.setRetrievalMode("BM25");
+                merged.put(result.getId(), result);
+            } else {
+                existing.setBm25Score(result.getBm25Score());
+                existing.setRetrievalMode("HYBRID");
+            }
+        }
+
+        List<VectorSearchService.SearchResult> finalResults = new ArrayList<>(merged.values());
+        for (VectorSearchService.SearchResult result : finalResults) {
+            double vectorScore = vectorScores.getOrDefault(result.getId(), 0.0);
+            double bm25Score = bm25Scores.getOrDefault(result.getId(), 0.0);
+            result.setHybridScore(vectorWeight * vectorScore + bm25Weight * bm25Score);
+        }
+
+        return finalResults.stream()
+                .sorted(Comparator.comparing(VectorSearchService.SearchResult::getHybridScore).reversed())
+                .limit(candidateK)
+                .toList();
+    }
+
+    @SafeVarargs
+    private final List<VectorSearchService.SearchResult> mergeById(List<VectorSearchService.SearchResult>... lists) {
+        Map<String, VectorSearchService.SearchResult> merged = new LinkedHashMap<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (List<VectorSearchService.SearchResult> list : lists) {
+            for (VectorSearchService.SearchResult result : list) {
+                if (seen.add(result.getId())) {
+                    merged.put(result.getId(), result);
+                } else {
+                    VectorSearchService.SearchResult existing = merged.get(result.getId());
+                    if (result.getBm25Score() != null) {
+                        existing.setBm25Score(Math.max(
+                                existing.getBm25Score() == null ? 0.0 : existing.getBm25Score(),
+                                result.getBm25Score()
+                        ));
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(merged.values());
     }
 
     private List<VectorSearchService.SearchResult> markVector(List<VectorSearchService.SearchResult> results) {

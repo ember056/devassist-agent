@@ -67,16 +67,51 @@ public class RerankService {
 
     private double calculateRerankScore(String query, VectorSearchService.SearchResult result) {
         Set<String> queryTerms = tokenize(query);
-        Set<String> contentTerms = tokenize(result.getContent());
+        Set<String> contentTerms = tokenize((result.getContent() == null ? "" : result.getContent())
+                + " "
+                + (result.getMetadata() == null ? "" : result.getMetadata()));
 
         if (queryTerms.isEmpty() || contentTerms.isEmpty()) {
-            return normalizeVectorScore(result.getScore());
+            return normalizeVectorScore(result.getScore()) + sourceIntentBoost(query, result);
         }
 
         long matched = queryTerms.stream().filter(contentTerms::contains).count();
         double lexicalScore = matched / (double) queryTerms.size();
 
-        return lexicalScore * 0.7 + normalizeVectorScore(result.getScore()) * 0.3;
+        return lexicalScore * 0.65 + normalizeVectorScore(result.getScore()) * 0.25 + sourceIntentBoost(query, result);
+    }
+
+    private double sourceIntentBoost(String query, VectorSearchService.SearchResult result) {
+        String normalizedQuery = query == null ? "" : query.toLowerCase(Locale.ROOT);
+        String metadata = result.getMetadata() == null ? "" : result.getMetadata().toLowerCase(Locale.ROOT);
+        double boost = 0.0;
+
+        if (containsAny(normalizedQuery, "redis", "缓存", "cache", "timeout")
+                && metadata.contains("redis_timeout")) {
+            boost += 0.35;
+        }
+        if (containsAny(normalizedQuery, "connection pool", "连接池", "database query timeout", "数据库", "db")
+                && metadata.contains("db_connection_pool")) {
+            boost += 0.35;
+        }
+        if (containsAny(normalizedQuery, "consumer lag", "mq", "消息", "队列", "backlog")
+                && metadata.contains("mq_backlog")) {
+            boost += 0.35;
+        }
+        if (containsAny(normalizedQuery, "pod", "restart", "oom", "oomkilled", "crashloopbackoff", "重启")
+                && metadata.contains("pod_restart")) {
+            boost += 0.35;
+        }
+        return boost;
+    }
+
+    private boolean containsAny(String value, String... terms) {
+        for (String term : terms) {
+            if (value.contains(term)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private double normalizeVectorScore(float l2Score) {
