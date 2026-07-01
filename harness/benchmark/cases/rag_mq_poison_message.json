@@ -1,0 +1,49 @@
+{
+  "id": "bench_rag_mq_poison_message",
+  "name": "Benchmark RAG MQ poison message",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels",
+    "citation_grounding"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-mq-poison",
+    "Question": "The same MQ message repeatedly fails and retry queue keeps growing. How should I handle poison message or schema mismatch? Please cite the knowledge base."
+  },
+  "labels": {
+    "expectedSources": [
+      "mq_backlog.md"
+    ],
+    "expectedEvidence": [
+      "Poison message",
+      "DLQ",
+      "schema compatibility"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness",
+      "mq_backlog.md"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}

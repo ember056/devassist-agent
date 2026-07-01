@@ -1,0 +1,49 @@
+{
+  "id": "bench_rag_pod_probe_failed",
+  "name": "Benchmark RAG Pod probe misconfiguration",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels",
+    "citation_grounding"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-pod-probe",
+    "Question": "A pod keeps restarting because liveness probe fails during startup. How should I investigate probe misconfiguration? Please cite the knowledge base."
+  },
+  "labels": {
+    "expectedSources": [
+      "pod_restart.md"
+    ],
+    "expectedEvidence": [
+      "Probe misconfiguration",
+      "liveness probe",
+      "initial delay"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness",
+      "pod_restart.md"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "id": "bench_rag_db_lock_wait",
+  "name": "Benchmark RAG DB lock wait",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels",
+    "citation_grounding"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-db-lock",
+    "Question": "Database lock wait and slow query logs increased, and the connection pool is exhausted. What should I do? Please cite the knowledge base."
+  },
+  "labels": {
+    "expectedSources": [
+      "db_connection_pool.md"
+    ],
+    "expectedEvidence": [
+      "lock wait",
+      "Slow query logs",
+      "connection pool"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness",
+      "db_connection_pool.md"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}

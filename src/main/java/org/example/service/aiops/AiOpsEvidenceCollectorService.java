@@ -124,12 +124,15 @@ public class AiOpsEvidenceCollectorService {
 
         String normalized = request.toLowerCase(Locale.ROOT);
         List<String> keywords = new ArrayList<>();
+        if (containsAny(normalized, "pod", "restart", "crashloopbackoff", "oomkilled", "oom", "container")) {
+            keywords.add("pod_restart.md Pod Restart CrashLoopBackOff OOMKilled restart_count previous logs liveness readiness deployment rollback");
+            keywords.add(request);
+            keywords.add("runbook");
+            return String.join(" ", keywords);
+        }
         keywords.add(request);
         keywords.add("runbook");
 
-        if (containsAny(normalized, "pod", "restart", "crashloopbackoff", "oomkilled", "oom", "container")) {
-            keywords.add("pod_restart Pod Restart CrashLoopBackOff OOMKilled restart_count previous logs liveness readiness deployment rollback");
-        }
         if (containsAny(normalized, "redis", "cache", "缓存", "connection timeout")) {
             keywords.add("redis_timeout Redis connection timeout cache hit rate big key hot key slowlog pool exhausted TTL avalanche");
         }

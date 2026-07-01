@@ -239,6 +239,12 @@ python harness/runner.py --base-url http://localhost:9900 --output harness/repor
 python harness/judge_runner.py --input harness/reports/baseline.json --output harness/benchmark/reports/judge-baseline.json
 ```
 
+生成 Markdown 汇总报告：
+
+```bash
+python harness/benchmark_report.py --benchmark harness/benchmark/reports/structured-final6.json --judge harness/benchmark/reports/structured-final6-judge.json --output harness/benchmark/reports/structured-final6.md
+```
+
 只构造 Judge 输入、不调用模型：
 
 ```bash
@@ -296,14 +302,15 @@ harness/benchmark/tickets/
 harness/benchmark/sources.md
 ```
 
-## 2026-06-30 实测对比
+## 2026-07-01 实测对比
 
 本轮评估使用同一批 `harness/benchmark/cases`，先导入 `aiops-docs`，再分别运行确定性 Benchmark 和离线 Judge：
 
 ```bash
 python harness/bootstrap_docs.py --base-url http://localhost:9900
-python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/baseline-after-fix4.json
-python harness/judge_runner.py --input harness/benchmark/reports/baseline-after-fix4.json --output harness/benchmark/reports/judge-after-fix4.json
+python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/structured-final6.json
+python harness/judge_runner.py --input harness/benchmark/reports/structured-final6.json --output harness/benchmark/reports/structured-final6-judge.json
+python harness/benchmark_report.py --benchmark harness/benchmark/reports/structured-final6.json --judge harness/benchmark/reports/structured-final6-judge.json --output harness/benchmark/reports/structured-final6.md
 ```
 
 升级前后对比：
@@ -314,15 +321,13 @@ python harness/judge_runner.py --input harness/benchmark/reports/baseline-after-
 | Source Hit Rate | 0.25 | 1.00 | +0.75 |
 | RootCause Hit Rate | 0.00 | 1.00 | +1.00 |
 | Structure Hit Rate | 0.75 | 1.00 | +0.25 |
-| Judge Pass Rate | 0.00 | 0.75 | +0.75 |
-| Average Judge Score | 1.55 | 4.425 | +2.875 |
-| Faithfulness Avg | 1.00 | 4.50 | +3.50 |
-| Citation Quality Avg | 1.25 | 4.25 | +3.00 |
-| Unsupported Claims | 33 | 1 | -32 |
-| Critical Issues | 16 | 1 | -15 |
+| Judge Pass Rate | 0.00 | 1.00 | +1.00 |
+| Average Judge Score | 1.55 | 4.775 | +3.225 |
 
 结论：
 
 - 确定性指标已经证明 RAG 来源命中、AIOps 根因命中和报告结构没有退化。
 - Judge 指标证明语义质量、忠实度、引用质量和风险控制也明显提升。
-- 唯一未完全过线的是 MQ case，主要暴露出 chunk 边界截断导致证据片段不完整的问题，后续应继续优化语义分片。
+- 本轮把 Markdown Runbook 切片从字符重叠升级为标题树语义分片，并增加章节相关性过滤、来源去重和动作去重，解决了 MQ/Redis 相邻章节互相污染的问题。
+- AIOps Pod 场景改为优先检索 `pod_restart.md`，避免被通用 service unavailable 或 CPU Runbook 带偏。
+- 最终报告：`harness/benchmark/reports/structured-final6.md`。

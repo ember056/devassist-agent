@@ -1,0 +1,49 @@
+{
+  "id": "bench_rag_redis_big_key",
+  "name": "Benchmark RAG Redis big key and slow command",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels",
+    "citation_grounding"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-redis-big-key",
+    "Question": "Redis latency spikes and slowlog shows HGETALL on a large hash. How should I investigate big key or slow command issues? Please cite the knowledge base."
+  },
+  "labels": {
+    "expectedSources": [
+      "redis_timeout.md"
+    ],
+    "expectedEvidence": [
+      "big key",
+      "slow command",
+      "HGETALL"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness",
+      "redis_timeout.md"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}

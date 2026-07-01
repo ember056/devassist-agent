@@ -1,0 +1,49 @@
+{
+  "id": "bench_rag_pod_bad_deployment",
+  "name": "Benchmark RAG Pod bad deployment or config",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels",
+    "citation_grounding"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-pod-config",
+    "Question": "Pod restart started immediately after deployment and logs show invalid config. How should I handle bad deployment or config? Please cite the knowledge base."
+  },
+  "labels": {
+    "expectedSources": [
+      "pod_restart.md"
+    ],
+    "expectedEvidence": [
+      "Bad deployment or config",
+      "Roll back deployment or config",
+      "invalid config"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness",
+      "pod_restart.md"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}

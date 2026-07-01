@@ -36,6 +36,7 @@ flowchart TD
 - REST 和 SSE 接口，支持普通问答、流式问答和 AIOps 诊断。
 - 内部 Runbook 与上传文档的 RAG 检索，支持 `txt`、`markdown`、`log` 和原生文本 PDF。
 - 文档入库前进行类型识别和结构化解析，保留页码、block 类型、parser、confidence 等元数据。
+- Markdown Runbook 按标题树做语义分片，保留 `headingPath`、`sectionTitle`、`semanticBlockType`，降低 Evidence/Actions 被切断的问题。
 - Milvus 向量检索 + 本地 BM25 的混合召回。
 - Query rewrite 按需触发，避免简单问题也调用大模型改写。
 - Query embedding cache 与 retrieval result cache，降低高频查询延迟和外部 API 成本。
@@ -280,7 +281,7 @@ python harness/bootstrap_docs.py --base-url http://localhost:9900
 当前本地解析能力：
 
 - `txt` / `log`：按原生文本解析。
-- `md` / `markdown`：按 Markdown 文本解析，后续切片优先利用标题结构。
+- `md` / `markdown`：按 Markdown 标题树解析，切片保留章节路径、标题层级和语义块类型。
 - `pdf`：使用 PDFBox 解析原生文本层，并保留 `pageNumber`。如果文本层过少，会提示后续应交给 MinerU/OCR。
 
 后续外部解析器预留方向：
@@ -365,6 +366,7 @@ STRONG_CONTRADICTION    LR = 0.1
 当前 RAG 链路包括：
 
 - 文档类型识别和结构化解析。
+- Markdown heading-tree 语义分片。
 - 原生 PDF 解析与页码 metadata。
 - Query rewrite 语义保护。
 - Query rewrite 按需触发。
@@ -373,6 +375,8 @@ STRONG_CONTRADICTION    LR = 0.1
 - 基于复杂度的检索路由。
 - 向量检索 + BM25 混合召回。
 - 复杂查询按需 rerank。
+- Grounded RAG fast path：明确要求引用知识库或 Runbook 的问题直接走证据模板，减少普通 Agent 自由扩写。
+- 章节相关性过滤和动作去重，避免同一 Runbook 的相邻根因章节污染回答。
 - 生成后忠实度校验。
 - Trace 记录缓存命中、改写决策、检索模式和结果数量。
 
@@ -453,6 +457,12 @@ Structure Hit Rate
 python harness/judge_runner.py --input harness/reports/latest-report.json --output harness/benchmark/reports/judge-latest.json
 ```
 
+生成可读 Markdown 报告：
+
+```bash
+python harness/benchmark_report.py --benchmark harness/benchmark/reports/structured-final6.json --judge harness/benchmark/reports/structured-final6-judge.json --output harness/benchmark/reports/structured-final6.md
+```
+
 Judge 默认使用 `qwen-plus`，通过 `DASHSCOPE_API_KEY` 调用 DashScope OpenAI-compatible 接口。它只作为 Benchmark 离线评估，不进入在线回答链路；评估结果需要和 Source Hit、RootCause Hit、结构通过率、延迟等确定性指标一起判断。
 
 Benchmark 数据集说明：
@@ -480,7 +490,7 @@ See [LICENSE](LICENSE).
 
 ## Latest Benchmark Result / 最新评估结果
 
-2026-06-30 对 RAG 与 AIOps workflow 做了一轮端到端 Benchmark。评估方式分两层：确定性 Benchmark labels 检查 `expectedSources`、`expectedRootCause`、`expectedSections` 是否命中；离线 LLM-as-Judge 检查 faithfulness、relevance、completeness、citationQuality、actionability、riskControl 等语义质量。
+2026-07-01 对 RAG 与 AIOps workflow 做了一轮端到端 Benchmark。评估方式分两层：确定性 Benchmark labels 检查 `expectedSources`、`expectedRootCause`、`expectedSections` 是否命中；离线 LLM-as-Judge 检查 faithfulness、relevance、completeness、citationQuality、actionability、riskControl 等语义质量。
 
 | Metric | Before | After | Change |
 |---|---:|---:|---:|
@@ -488,17 +498,19 @@ See [LICENSE](LICENSE).
 | Source Hit Rate | 0.25 | 1.00 | +0.75 |
 | RootCause Hit Rate | 0.00 | 1.00 | +1.00 |
 | Structure Hit Rate | 0.75 | 1.00 | +0.25 |
-| Judge Pass Rate | 0.00 | 0.75 | +0.75 |
-| Average Judge Score | 1.55 | 4.425 | +2.875 |
-| Unsupported Claims | 33 | 1 | -32 |
-| Critical Issues | 16 | 1 | -15 |
+| Judge Pass Rate | 0.00 | 1.00 | +1.00 |
+| Average Judge Score | 1.55 | 4.775 | +3.225 |
 
 本轮优化点：
 
+- Markdown Runbook 从字符重叠切片升级为标题树语义分片，新增 `headingPath`、`sectionTitle`、`semanticBlockType` 元数据。
 - BM25 索引加入文件名、标题、source metadata，提升 Runbook 精确召回。
 - Query Rewrite 后保留原始 query 关键词信号，避免 `Redis connection timeout`、`Database query timeout` 等强定位词被改写丢失。
-- AIOps Runbook 查询按症状分流，例如 OOM/CrashLoopBackOff 优先补充 `pod_restart` 相关关键词。
+- 英文 `knowledge base` / `cite` / `troubleshoot` / `investigate` 等问题也进入 grounded RAG，避免普通 Agent 先自由扩写。
+- AIOps Runbook 查询按症状分流，例如 OOM/CrashLoopBackOff 优先命中 `pod_restart.md`。
 - RAG/Runbook 问题增加 grounded RAG fast path：高置信知识库问答直接走受控证据模板，减少普通 Agent 自由扩写。
-- 回答生成按意图聚焦主文档，避免 Redis/DB/MQ 场景混入过多旧通用文档。
+- 回答生成按意图聚焦主文档和目标章节，避免 Redis/DB/MQ 场景混入相邻根因章节。
+- 来源和动作步骤去重，避免同一 chunk 由新旧索引重复命中后造成重复引用。
+- 新增 `harness/benchmark_report.py`，把确定性 Benchmark 与 Judge 结果合并成 Markdown 报告。
 
-延迟也有明显下降：RAG Benchmark 单条响应从上一轮约 22-28s 降到约 3.9-5.8s。当前仍保留一个 MQ case 的 Judge 分数未过线作为后续优化点，主要原因是 chunk 边界导致部分证据片段不够完整，需要继续优化语义分片。
+最终报告见 `harness/benchmark/reports/structured-final6.md`。本轮 12 条 case 全部通过：Harness Pass Rate、Source Hit Rate、RootCause Hit Rate、Structure Hit Rate、Judge Pass Rate 均为 `1.0000`，Average Judge Score 为 `4.7750`。

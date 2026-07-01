@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -238,20 +239,39 @@ public class ChatApplicationService {
                 || normalized.contains("文档")
                 || normalized.contains("runbook")
                 || normalized.contains("引用")
+                || normalized.contains("knowledge base")
+                || normalized.contains("documentation")
+                || normalized.contains("cite")
+                || normalized.contains("citation")
+                || normalized.contains("troubleshoot")
+                || normalized.contains("investigate")
                 || normalized.contains("排查")
                 || normalized.contains("故障")
                 || normalized.contains("redis")
+                || normalized.contains("cache avalanche")
+                || normalized.contains("cache hit rate")
+                || normalized.contains("big key")
+                || normalized.contains("slowlog")
                 || normalized.contains("database query timeout")
+                || normalized.contains("database connection")
                 || normalized.contains("connection pool")
+                || normalized.contains("connection leak")
+                || normalized.contains("slow query")
+                || normalized.contains("lock wait")
                 || normalized.contains("consumer lag")
+                || normalized.contains("poison message")
+                || normalized.contains("schema mismatch")
                 || normalized.contains("pod")
+                || normalized.contains("liveness probe")
+                || normalized.contains("bad deployment")
+                || normalized.contains("invalid config")
                 || normalized.contains("crashloopbackoff")
                 || normalized.contains("oomkilled");
     }
 
     private String buildGroundedRagAnswer(String question) {
         TrustedRagRetrievalService.TrustedRagResult ragResult =
-                trustedRagRetrievalService.retrieve(question, ragTopK);
+                trustedRagRetrievalService.retrieve(question, Math.max(ragTopK, 8));
         List<VectorSearchService.SearchResult> sources = focusedSources(question, ragResult.getResults());
         if (sources.isEmpty()) {
             return "知识库未检索到足够相关的证据，暂时不能给出有依据的排查结论。建议先补充相关 Runbook、日志样例或告警说明。";
@@ -266,29 +286,33 @@ public class ChatApplicationService {
 
         answer.append("### 证据摘要\n\n");
         for (VectorSearchService.SearchResult source : sources) {
-            answer.append("**参考资料 ").append(sourceIndex(source)).append("：")
-                    .append(sourceName(source))
+            answer.append("**").append(citationLabel(source))
                     .append("**\n\n");
             answer.append(excerpt(source.getContent())).append("\n\n");
         }
 
         answer.append("### 建议处理步骤\n\n");
         int step = 1;
+        Set<String> usedActions = new LinkedHashSet<>();
         for (VectorSearchService.SearchResult source : sources) {
-            List<String> actions = evidenceLines(source.getContent());
+            List<String> actions = linesForSection(source, SectionUse.ACTION);
             for (String action : actions) {
+                if (!usedActions.add(normalizeActionLine(action))) {
+                    continue;
+                }
                 answer.append(step++).append(". ")
                         .append(action)
-                        .append("（来源：参考资料 ")
-                        .append(sourceIndex(source))
-                        .append("，")
-                        .append(sourceName(source))
+                        .append("（来源：")
+                        .append(citationLabel(source))
                         .append("）\n");
             }
         }
         if (step == 1) {
-            answer.append("1. 当前资料只提供了背景症状，缺少明确操作步骤；建议先补充日志、指标和告警原文后再执行变更。\n");
+            answer.append("1. 当前命中资料主要是症状或关键词，缺少明确操作步骤；建议补充 First Response、Actions、Verification 等 Runbook 章节后再执行变更。\n");
         }
+
+        appendSectionLines(answer, "### 安全边界\n\n", sources, SectionUse.SAFETY);
+        appendSectionLines(answer, "### 验证指标\n\n", sources, SectionUse.VERIFICATION);
 
         FaithfulnessVerifierService.VerificationResult verification =
                 faithfulnessVerifierService.verify(answer.toString(), sources);
@@ -305,10 +329,8 @@ public class ChatApplicationService {
 
         answer.append("\n### 参考来源\n\n");
         for (VectorSearchService.SearchResult source : sources) {
-            answer.append("- 参考资料 ")
-                    .append(sourceIndex(source))
-                    .append("：")
-                    .append(sourceName(source))
+            answer.append("- ")
+                    .append(citationLabel(source))
                     .append("，metadata=")
                     .append(source.getMetadata())
                     .append("\n");
@@ -326,9 +348,133 @@ public class ChatApplicationService {
         }
         List<VectorSearchService.SearchResult> focused = sources.stream()
                 .filter(source -> sourceName(source).equals(preferred))
+                .filter(source -> matchesPreferredSection(question, source))
+                .sorted((left, right) -> Integer.compare(sourcePriority(question, left), sourcePriority(question, right)))
+                .collect(Collectors.toMap(
+                        source -> sourceName(source) + "|" + normalizedSectionTitle(source) + "|" + normalizedContentFingerprint(source),
+                        source -> source,
+                        (left, right) -> left,
+                        java.util.LinkedHashMap::new
+                ))
+                .values()
+                .stream()
                 .limit(ragTopK)
                 .collect(Collectors.toList());
         return focused.isEmpty() ? sources : focused;
+    }
+
+    private String normalizedSectionTitle(VectorSearchService.SearchResult source) {
+        String sectionTitle = metadataValue(source, "sectionTitle");
+        if (sectionTitle.isBlank()) {
+            sectionTitle = metadataValue(source, "title");
+        }
+        return sectionTitle.toLowerCase().replaceAll("\\s+", " ").trim();
+    }
+
+    private String normalizedContentFingerprint(VectorSearchService.SearchResult source) {
+        String content = source.getContent() == null ? "" : source.getContent();
+        return content.toLowerCase()
+                .replaceAll("[#`*_>\\-\\d\\.]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private boolean matchesPreferredSection(String question, VectorSearchService.SearchResult source) {
+        List<String> terms = preferredSectionTerms(question);
+        if (terms.isEmpty()) {
+            return true;
+        }
+        String searchable = String.join("\n",
+                metadataValue(source, "title"),
+                metadataValue(source, "sectionTitle"),
+                metadataValue(source, "headingPath"),
+                source.getContent() == null ? "" : source.getContent()
+        ).toLowerCase();
+        return terms.stream().anyMatch(searchable::contains);
+    }
+
+    private List<String> preferredSectionTerms(String question) {
+        String normalized = question == null ? "" : question.toLowerCase();
+        if (normalized.contains("cache avalanche") || normalized.contains("ttl avalanche") || normalized.contains("many cache keys expired")) {
+            return List.of("cache avalanche");
+        }
+        if (normalized.contains("big key") || normalized.contains("slow command") || normalized.contains("slowlog")) {
+            return List.of("big key", "slow command");
+        }
+        if (normalized.contains("hot key")) {
+            return List.of("hot key");
+        }
+        if (normalized.contains("connection leak")) {
+            return List.of("connection leak");
+        }
+        if (normalized.contains("lock wait") || normalized.contains("slow query")) {
+            return List.of("slow sql", "lock contention");
+        }
+        if (normalized.contains("connection pool") || normalized.contains("连接池")) {
+            return List.of("connection pool");
+        }
+        if (normalized.contains("poison message") || normalized.contains("schema mismatch")) {
+            return List.of("poison message", "schema mismatch");
+        }
+        if (normalized.contains("downstream") || normalized.contains("consumer lag")) {
+            return List.of("downstream dependency", "consumer lag", "backlog");
+        }
+        if (normalized.contains("liveness probe") || normalized.contains("readiness probe") || normalized.contains("probe")) {
+            return List.of("probe misconfiguration", "liveness", "readiness");
+        }
+        if (normalized.contains("bad deployment") || normalized.contains("invalid config")) {
+            return List.of("bad deployment", "invalid config");
+        }
+        if (normalized.contains("oomkilled") || normalized.contains("crashloopbackoff")) {
+            return List.of("oomkilled", "crashloopbackoff", "pod restart");
+        }
+        return List.of();
+    }
+
+    private int sourcePriority(String question, VectorSearchService.SearchResult source) {
+        String normalizedQuestion = question == null ? "" : question.toLowerCase();
+        String headingPath = metadataValue(source, "headingPath").toLowerCase();
+        String title = metadataValue(source, "title").toLowerCase();
+        String semanticBlockType = metadataValue(source, "semanticBlockType").toLowerCase();
+        String content = source.getContent() == null ? "" : source.getContent().toLowerCase();
+
+        if (asksForSteps(normalizedQuestion)) {
+            if (headingPath.contains("first response") || title.contains("first response")) {
+                return 0;
+            }
+            if (semanticBlockType.equals("action") || headingPath.contains("actions") || title.contains("actions")) {
+                return 1;
+            }
+            if (semanticBlockType.equals("root_cause")) {
+                return 2;
+            }
+            if (semanticBlockType.equals("safety")) {
+                return 4;
+            }
+            if (semanticBlockType.equals("verification")) {
+                return 5;
+            }
+            if (semanticBlockType.equals("symptom")) {
+                return 8;
+            }
+        }
+
+        if (content.contains("actions:") || headingPath.contains("actions")) {
+            return 1;
+        }
+        if (content.contains("evidence:") || semanticBlockType.equals("evidence")) {
+            return 2;
+        }
+        return 5;
+    }
+
+    private boolean asksForSteps(String normalizedQuestion) {
+        return normalizedQuestion.contains("step")
+                || normalizedQuestion.contains("how should")
+                || normalizedQuestion.contains("investigate")
+                || normalizedQuestion.contains("排查")
+                || normalizedQuestion.contains("步骤")
+                || normalizedQuestion.contains("怎么");
     }
 
     private String preferredSource(String question) {
@@ -379,6 +525,62 @@ public class ChatApplicationService {
         return metadata.substring(firstQuote + 1, secondQuote);
     }
 
+    private String citationLabel(VectorSearchService.SearchResult source) {
+        StringBuilder label = new StringBuilder();
+        label.append("参考资料 ").append(sourceIndex(source)).append("：").append(sourceName(source));
+        String headingPath = metadataValue(source, "headingPath");
+        if (!headingPath.isBlank()) {
+            label.append(" > ").append(headingPath);
+        } else {
+            String title = metadataValue(source, "title");
+            if (!title.isBlank()) {
+                label.append(" > ").append(title);
+            }
+        }
+        String chunkIndex = metadataValue(source, "chunkIndex");
+        if (!chunkIndex.isBlank()) {
+            label.append(" > chunk ").append(chunkIndex);
+        }
+        return label.toString();
+    }
+
+    private String metadataValue(VectorSearchService.SearchResult source, String keyName) {
+        String metadata = source.getMetadata();
+        if (metadata == null || keyName == null || keyName.isBlank()) {
+            return "";
+        }
+        String key = "\"" + keyName + "\"";
+        int keyIndex = metadata.indexOf(key);
+        if (keyIndex < 0) {
+            return "";
+        }
+        int colon = metadata.indexOf(':', keyIndex + key.length());
+        if (colon < 0) {
+            return "";
+        }
+        int valueStart = colon + 1;
+        while (valueStart < metadata.length() && Character.isWhitespace(metadata.charAt(valueStart))) {
+            valueStart++;
+        }
+        if (valueStart >= metadata.length()) {
+            return "";
+        }
+        if (metadata.charAt(valueStart) == '"') {
+            int valueEnd = metadata.indexOf('"', valueStart + 1);
+            if (valueEnd < 0) {
+                return "";
+            }
+            return metadata.substring(valueStart + 1, valueEnd);
+        }
+        int comma = metadata.indexOf(',', valueStart);
+        int endBrace = metadata.indexOf('}', valueStart);
+        int valueEnd = comma < 0 ? endBrace : Math.min(comma, endBrace < 0 ? comma : endBrace);
+        if (valueEnd < 0) {
+            valueEnd = metadata.length();
+        }
+        return metadata.substring(valueStart, valueEnd).trim();
+    }
+
     private String excerpt(String content) {
         if (content == null || content.isBlank()) {
             return "该片段为空。";
@@ -390,8 +592,73 @@ public class ChatApplicationService {
         return normalized.substring(0, 1200) + "...";
     }
 
-    private List<String> evidenceLines(String content) {
+    private void appendSectionLines(
+            StringBuilder answer,
+            String title,
+            List<VectorSearchService.SearchResult> sources,
+            SectionUse use
+    ) {
+        int index = 1;
+        StringBuilder section = new StringBuilder(title);
+        Set<String> usedLines = new LinkedHashSet<>();
+        for (VectorSearchService.SearchResult source : sources) {
+            for (String line : linesForSection(source, use)) {
+                if (!usedLines.add(normalizeActionLine(line))) {
+                    continue;
+                }
+                section.append(index++).append(". ")
+                        .append(line)
+                        .append("（来源：")
+                        .append(citationLabel(source))
+                        .append("）\n");
+            }
+        }
+        if (index > 1) {
+            answer.append("\n").append(section);
+        }
+    }
+
+    private String normalizeActionLine(String line) {
+        return line == null ? "" : line.toLowerCase().replaceAll("\\s+", " ").trim();
+    }
+
+    private List<String> linesForSection(VectorSearchService.SearchResult source, SectionUse use) {
+        String content = source.getContent();
         if (content == null || content.isBlank()) {
+            return List.of();
+        }
+        List<String> markedLines = switch (use) {
+            case ACTION -> linesAfterMarker(content, "Actions:");
+            case SAFETY -> linesAfterMarker(content, "Safe Operations:");
+            case VERIFICATION -> linesAfterMarker(content, "Verification:");
+        };
+        if (!markedLines.isEmpty()) {
+            return markedLines;
+        }
+        String semanticBlockType = metadataValue(source, "semanticBlockType").toLowerCase();
+        String headingPath = metadataValue(source, "headingPath").toLowerCase();
+        String title = metadataValue(source, "title").toLowerCase();
+        boolean actionLike = semanticBlockType.equals("action")
+                || semanticBlockType.equals("root_cause")
+                || headingPath.contains("first response")
+                || headingPath.contains("actions")
+                || title.contains("first response")
+                || title.contains("actions");
+        boolean safetyLike = semanticBlockType.equals("safety")
+                || headingPath.contains("safe operations")
+                || title.contains("safe operations")
+                || title.contains("safe");
+        boolean verificationLike = semanticBlockType.equals("verification")
+                || headingPath.contains("verification")
+                || title.contains("verification");
+
+        if (use == SectionUse.ACTION && !actionLike) {
+            return List.of();
+        }
+        if (use == SectionUse.SAFETY && !safetyLike) {
+            return List.of();
+        }
+        if (use == SectionUse.VERIFICATION && !verificationLike) {
             return List.of();
         }
         return content.lines()
@@ -407,6 +674,65 @@ public class ChatApplicationService {
                 .map(line -> line.replaceFirst("^-\\s*", ""))
                 .limit(8)
                 .collect(Collectors.toList());
+    }
+
+    private List<String> linesAfterMarker(String content, String marker) {
+        List<String> result = new ArrayList<>();
+        boolean collecting = false;
+        for (String rawLine : content.lines().toList()) {
+            String line = rawLine.trim();
+            if (line.equalsIgnoreCase(marker)) {
+                collecting = true;
+                continue;
+            }
+            if (!collecting) {
+                continue;
+            }
+            if (isSectionBoundary(line)) {
+                break;
+            }
+            if (isUsableSectionLine(line)) {
+                result.add(cleanSectionLine(line));
+            }
+            if (result.size() >= 8) {
+                break;
+            }
+        }
+        return result;
+    }
+
+    private boolean isSectionBoundary(String line) {
+        if (line.isBlank()) {
+            return false;
+        }
+        return line.startsWith("#")
+                || line.equalsIgnoreCase("Evidence:")
+                || line.equalsIgnoreCase("Actions:")
+                || line.equalsIgnoreCase("Safe Operations:")
+                || line.equalsIgnoreCase("Verification:")
+                || line.equalsIgnoreCase("Symptoms:")
+                || line.equalsIgnoreCase("Root Cause Candidates:");
+    }
+
+    private boolean isUsableSectionLine(String line) {
+        if (line.isBlank() || line.length() < 12) {
+            return false;
+        }
+        return line.startsWith("-")
+                || line.matches("^\\d+\\.\\s+.*")
+                || line.matches("^(Check|Confirm|Identify|Compare|Search|Preserve|Reduce|Tune|Add|Split|Replace|Do not|Avoid|Prefer|Temporarily|Enable|Inspect|Roll back|Validate|Query|Monitor|Restart|Scale|Throttle|Pause|Resume).*");
+    }
+
+    private String cleanSectionLine(String line) {
+        return line.replaceFirst("^\\d+\\.\\s*", "")
+                .replaceFirst("^-\\s*", "")
+                .trim();
+    }
+
+    private enum SectionUse {
+        ACTION,
+        SAFETY,
+        VERIFICATION
     }
 
     private void handleStreamOutput(NodeOutput output, StringBuilder fullAnswerBuilder, StreamHandler handler) {

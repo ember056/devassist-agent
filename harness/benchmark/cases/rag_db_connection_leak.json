@@ -1,0 +1,49 @@
+{
+  "id": "bench_rag_db_connection_leak",
+  "name": "Benchmark RAG DB connection leak",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels",
+    "citation_grounding"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-db-leak",
+    "Question": "Active database connections keep increasing even when traffic drops. How should I investigate a connection leak? Please cite the knowledge base."
+  },
+  "labels": {
+    "expectedSources": [
+      "db_connection_pool.md"
+    ],
+    "expectedEvidence": [
+      "Connection leak",
+      "Active connections keep increasing",
+      "leak detection"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness",
+      "db_connection_pool.md"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}

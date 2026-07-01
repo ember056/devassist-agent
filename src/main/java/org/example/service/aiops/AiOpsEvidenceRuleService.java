@@ -57,6 +57,10 @@ public class AiOpsEvidenceRuleService {
             matches.add(new EvidenceMatch(H_RUNTIME_RESTART, EvidenceStrength.STRONG_SUPPORT,
                     "Restart or crash events strongly support runtime instability."));
         }
+        if (evidence.getType() == EvidenceType.RUNBOOK && containsAny(content, "pod_restart.md", "crashloopbackoff", "oomkilled", "restart_count")) {
+            matches.add(new EvidenceMatch(H_RUNTIME_RESTART, EvidenceStrength.STRONG_SUPPORT,
+                    "Pod restart runbook evidence directly supports runtime restart or container instability."));
+        }
         if (evidence.getType() == EvidenceType.RUNBOOK && containsAny(content, "runbook", "service_unavailable", "slow_response", "cpu_high_usage")) {
             matches.add(new EvidenceMatch(H_APP_ERROR, EvidenceStrength.WEAK_SUPPORT,
                     "Runbook retrieval found related incident handling guidance."));

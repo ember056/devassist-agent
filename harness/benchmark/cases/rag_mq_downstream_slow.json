@@ -1,0 +1,49 @@
+{
+  "id": "bench_rag_mq_downstream_slow",
+  "name": "Benchmark RAG MQ downstream dependency slow",
+  "category": "rag",
+  "capabilities": [
+    "hybrid_retrieval",
+    "source_citation",
+    "faithfulness",
+    "benchmark_labels",
+    "citation_grounding"
+  ],
+  "endpoint": "/api/chat",
+  "payload": {
+    "Id": "bench-rag-mq-downstream",
+    "Question": "Consumer processing time increased and database or Redis dependency timeout appears in consumer logs. How should I investigate MQ backlog caused by downstream dependency? Please cite the knowledge base."
+  },
+  "labels": {
+    "expectedSources": [
+      "mq_backlog.md"
+    ],
+    "expectedEvidence": [
+      "Downstream dependency slow",
+      "Database, Redis, or HTTP dependency timeout",
+      "backpressure"
+    ],
+    "expectedSections": [
+      "参考来源",
+      "Faithfulness"
+    ]
+  },
+  "assertions": {
+    "contains": [
+      "参考来源",
+      "Faithfulness",
+      "mq_backlog.md"
+    ],
+    "not_contains": [
+      "No relevant documents found"
+    ],
+    "json_path_exists": [
+      "data.traceId",
+      "data.answer"
+    ],
+    "json_path_equals": {
+      "data.success": true
+    },
+    "max_duration_ms": 180000
+  }
+}
