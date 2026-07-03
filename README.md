@@ -376,6 +376,7 @@ STRONG_CONTRADICTION    LR = 0.1
 - 向量检索 + BM25 混合召回。
 - 复杂查询按需 rerank。
 - Grounded RAG fast path：明确要求引用知识库或 Runbook 的问题直接走证据模板，减少普通 Agent 自由扩写。
+- EvidenceSpan 证据抽取：把召回 chunk 进一步拆为 evidence / action / safety / verification 证据句，回答只从证据句组织。
 - 章节相关性过滤和动作去重，避免同一 Runbook 的相邻根因章节污染回答。
 - 生成后忠实度校验。
 - Trace 记录缓存命中、改写决策、检索模式和结果数量。
@@ -514,3 +515,43 @@ See [LICENSE](LICENSE).
 - 新增 `harness/benchmark_report.py`，把确定性 Benchmark 与 Judge 结果合并成 Markdown 报告。
 
 最终报告见 `harness/benchmark/reports/structured-final6.md`。本轮 12 条 case 全部通过：Harness Pass Rate、Source Hit Rate、RootCause Hit Rate、Structure Hit Rate、Judge Pass Rate 均为 `1.0000`，Average Judge Score 为 `4.7750`。
+
+## EvidenceSpan Upgrade / 证据句抽取升级
+
+2026-07-03 开始按论文中的 evidence extraction / evidence filtering 思路做工程化升级。第一阶段没有把 RL 或在线 Judge 放入主链路，而是先把 RAG 生成从 chunk 级上下文升级为证据句级上下文：
+
+```text
+Hybrid Retrieval
+  -> focused sources
+  -> EvidenceSpanExtractorService
+  -> evidence / action / safety / verification spans
+  -> grounded answer
+  -> Faithfulness
+```
+
+新增代码：
+
+```text
+src/main/java/org/example/service/EvidenceSpan.java
+src/main/java/org/example/service/EvidenceSpanExtractorService.java
+```
+
+这一步的价值是把“命中文档”进一步细化为“命中哪条证据句、哪条动作句、哪条安全边界”。后续做 MAIN-RAG 风格过滤、GraphRAG 邻域扩展和 Agentic Retrieval 时，可以直接基于 EvidenceSpan 评分和组合，而不是继续处理整段 chunk。
+
+阶段一评估报告：
+
+```text
+harness/benchmark/reports/evidence-span-final2.md
+```
+
+结果：
+
+```text
+Total cases          12
+Harness pass rate    1.0000
+Source Hit Rate      1.0000
+RootCause Hit Rate   1.0000
+Structure Hit Rate   1.0000
+Judge pass rate      1.0000
+Average Judge score  4.7500
+```

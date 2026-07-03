@@ -48,6 +48,7 @@ public class ChatApplicationService {
     private final AgentTraceService traceService;
     private final TrustedRagRetrievalService trustedRagRetrievalService;
     private final FaithfulnessVerifierService faithfulnessVerifierService;
+    private final EvidenceSpanExtractorService evidenceSpanExtractorService;
 
     @Value("${rag.top-k:3}")
     private int ragTopK;
@@ -58,7 +59,8 @@ public class ChatApplicationService {
             ChatMemoryService chatMemoryService,
             AgentTraceService traceService,
             TrustedRagRetrievalService trustedRagRetrievalService,
-            FaithfulnessVerifierService faithfulnessVerifierService
+            FaithfulnessVerifierService faithfulnessVerifierService,
+            EvidenceSpanExtractorService evidenceSpanExtractorService
     ) {
         this.chatService = chatService;
         this.chatAnswerVerificationService = chatAnswerVerificationService;
@@ -66,6 +68,7 @@ public class ChatApplicationService {
         this.traceService = traceService;
         this.trustedRagRetrievalService = trustedRagRetrievalService;
         this.faithfulnessVerifierService = faithfulnessVerifierService;
+        this.evidenceSpanExtractorService = evidenceSpanExtractorService;
     }
 
     public ChatResult chat(String requestedSessionId, String question) throws Exception {
@@ -276,43 +279,27 @@ public class ChatApplicationService {
         if (sources.isEmpty()) {
             return "知识库未检索到足够相关的证据，暂时不能给出有依据的排查结论。建议先补充相关 Runbook、日志样例或告警说明。";
         }
+        List<EvidenceSpan> evidenceSpans = evidenceSpanExtractorService.extract(question, sources);
 
         StringBuilder answer = new StringBuilder();
         answer.append("### 基于知识库的排查回答\n\n");
-        answer.append("我只根据本次命中的知识库片段回答。用户问题中的服务名、现象描述会作为上下文使用；没有在资料中出现的命令、阈值或配置项不会扩写。\n\n");
+        answer.append("我只根据本次命中的知识库证据句回答。用户问题中的服务名、现象描述会作为上下文使用；没有在资料中出现的命令、阈值或配置项不会扩写。\n\n");
         answer.append("- 原始问题：").append(question).append("\n");
         answer.append("- 实际检索问题：").append(ragResult.getPreprocess().finalQuery()).append("\n");
         answer.append("- 命中文档：").append(sourceFiles(sources)).append("\n\n");
 
         answer.append("### 证据摘要\n\n");
-        for (VectorSearchService.SearchResult source : sources) {
-            answer.append("**").append(citationLabel(source))
-                    .append("**\n\n");
-            answer.append(excerpt(source.getContent())).append("\n\n");
-        }
+        appendEvidenceSpanSection(answer, evidenceSpans, EvidenceSpan.Type.EVIDENCE, "证据", 8);
+        appendEvidenceSpanSection(answer, evidenceSpans, EvidenceSpan.Type.CONTEXT, "上下文", 4);
 
         answer.append("### 建议处理步骤\n\n");
-        int step = 1;
-        Set<String> usedActions = new LinkedHashSet<>();
-        for (VectorSearchService.SearchResult source : sources) {
-            List<String> actions = linesForSection(source, SectionUse.ACTION);
-            for (String action : actions) {
-                if (!usedActions.add(normalizeActionLine(action))) {
-                    continue;
-                }
-                answer.append(step++).append(". ")
-                        .append(action)
-                        .append("（来源：")
-                        .append(citationLabel(source))
-                        .append("）\n");
-            }
-        }
-        if (step == 1) {
+        int actionCount = appendEvidenceSpanSection(answer, evidenceSpans, EvidenceSpan.Type.ACTION, null, 10);
+        if (actionCount == 0) {
             answer.append("1. 当前命中资料主要是症状或关键词，缺少明确操作步骤；建议补充 First Response、Actions、Verification 等 Runbook 章节后再执行变更。\n");
         }
 
-        appendSectionLines(answer, "### 安全边界\n\n", sources, SectionUse.SAFETY);
-        appendSectionLines(answer, "### 验证指标\n\n", sources, SectionUse.VERIFICATION);
+        appendOptionalEvidenceSpanSection(answer, "### 安全边界\n\n", evidenceSpans, EvidenceSpan.Type.SAFETY, 6);
+        appendOptionalEvidenceSpanSection(answer, "### 验证指标\n\n", evidenceSpans, EvidenceSpan.Type.VERIFICATION, 6);
 
         FaithfulnessVerifierService.VerificationResult verification =
                 faithfulnessVerifierService.verify(answer.toString(), sources);
@@ -336,6 +323,50 @@ public class ChatApplicationService {
                     .append("\n");
         }
         return answer.toString();
+    }
+
+    private void appendOptionalEvidenceSpanSection(
+            StringBuilder answer,
+            String title,
+            List<EvidenceSpan> spans,
+            EvidenceSpan.Type type,
+            int limit
+    ) {
+        StringBuilder section = new StringBuilder(title);
+        int count = appendEvidenceSpanSection(section, spans, type, null, limit);
+        if (count > 0) {
+            answer.append("\n").append(section);
+        }
+    }
+
+    private int appendEvidenceSpanSection(
+            StringBuilder answer,
+            List<EvidenceSpan> spans,
+            EvidenceSpan.Type type,
+            String prefix,
+            int limit
+    ) {
+        int index = 1;
+        Set<String> usedLines = new LinkedHashSet<>();
+        for (EvidenceSpan span : spans) {
+            if (span.type() != type || !usedLines.add(span.normalizedText())) {
+                continue;
+            }
+            answer.append(index++).append(". ");
+            if (prefix != null && !prefix.isBlank()) {
+                answer.append(prefix).append("：");
+            }
+            answer.append(span.text())
+                    .append("（来源：")
+                    .append(span.citationLabel())
+                    .append("，support=")
+                    .append(String.format("%.2f", span.supportScore()))
+                    .append("）\n");
+            if (index > limit) {
+                break;
+            }
+        }
+        return index - 1;
     }
 
     private List<VectorSearchService.SearchResult> focusedSources(
@@ -485,8 +516,14 @@ public class ChatApplicationService {
         if (normalized.contains("consumer lag") || normalized.contains("mq") || normalized.contains("消息") || normalized.contains("队列")) {
             return "mq_backlog.md";
         }
-        if (normalized.contains("database query timeout") || normalized.contains("connection pool")
-                || normalized.contains("连接池") || normalized.contains("数据库")) {
+        if (normalized.contains("database query timeout")
+                || normalized.contains("database connection")
+                || normalized.contains("connection pool")
+                || normalized.contains("connection leak")
+                || normalized.contains("slow query")
+                || normalized.contains("lock wait")
+                || normalized.contains("连接池")
+                || normalized.contains("数据库")) {
             return "db_connection_pool.md";
         }
         if (normalized.contains("pod") || normalized.contains("crashloopbackoff") || normalized.contains("oomkilled")) {

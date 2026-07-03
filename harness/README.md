@@ -331,3 +331,42 @@ python harness/benchmark_report.py --benchmark harness/benchmark/reports/structu
 - 本轮把 Markdown Runbook 切片从字符重叠升级为标题树语义分片，并增加章节相关性过滤、来源去重和动作去重，解决了 MQ/Redis 相邻章节互相污染的问题。
 - AIOps Pod 场景改为优先检索 `pod_restart.md`，避免被通用 service unavailable 或 CPU Runbook 带偏。
 - 最终报告：`harness/benchmark/reports/structured-final6.md`。
+
+## 2026-07-03 EvidenceSpan 阶段评估
+
+本阶段借鉴 evidence extraction / evidence filtering 思路，将 grounded RAG 从 chunk 级回答升级为证据句级回答：
+
+```text
+retrieved chunks
+  -> EvidenceSpanExtractorService
+  -> evidence/action/safety/verification spans
+  -> grounded answer
+  -> Faithfulness + Judge
+```
+
+运行命令：
+
+```bash
+python harness/bootstrap_docs.py --base-url http://localhost:9900
+python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/evidence-span-final2.json
+python harness/judge_runner.py --input harness/benchmark/reports/evidence-span-final2.json --output harness/benchmark/reports/evidence-span-final2-judge.json
+python harness/benchmark_report.py --benchmark harness/benchmark/reports/evidence-span-final2.json --judge harness/benchmark/reports/evidence-span-final2-judge.json --output harness/benchmark/reports/evidence-span-final2.md
+```
+
+结果：
+
+| Metric | Value |
+|---|---:|
+| Total cases | 12 |
+| Harness Pass Rate | 1.0000 |
+| Source Hit Rate | 1.0000 |
+| RootCause Hit Rate | 1.0000 |
+| Structure Hit Rate | 1.0000 |
+| Judge Pass Rate | 1.0000 |
+| Average Judge Score | 4.7500 |
+
+结论：
+
+- EvidenceSpan 没有破坏上一阶段的确定性指标。
+- RAG 回答现在能展示每条 evidence/action/safety/verification 的来源和 support 分数。
+- 后续可以在 EvidenceSpan 层继续做 MAIN-RAG 风格过滤、Runbook GraphRAG 邻域扩展和多步 Agentic Retrieval。
