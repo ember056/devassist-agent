@@ -29,6 +29,9 @@ public class TrustedRagRetrievalService {
     private RerankService rerankService;
 
     @Autowired
+    private AgenticRetrievalService agenticRetrievalService;
+
+    @Autowired
     private AgentTraceService traceService;
 
     @Value("${rag.retrieval.cache.enabled:true}")
@@ -86,6 +89,22 @@ public class TrustedRagRetrievalService {
             span.success(Map.of("rawResultCount", rawResults.size()));
         }
 
+        AgenticRetrievalService.ExpansionResult agenticExpansion =
+                agenticRetrievalService.expand(
+                        preprocessResult.originalQuery(),
+                        preprocessResult.finalQuery(),
+                        rawResults,
+                        topK,
+                        route.getRetrievalMode()
+                );
+        rawResults = agenticExpansion.results();
+        traceService.event("rag", "agentic_retrieval_decision", Map.of(
+                "expanded", agenticExpansion.expanded(),
+                "addedCount", agenticExpansion.addedCount(),
+                "subqueryCount", agenticExpansion.subqueries().size(),
+                "reason", agenticExpansion.reason()
+        ));
+
         String rerankQuery = rerankQuery(preprocessResult);
         boolean rerankApplied = route.complex()
                 && rerankService.shouldRerank(rerankQuery, rawResults);
@@ -102,7 +121,7 @@ public class TrustedRagRetrievalService {
         ));
         assignSourceIndexes(finalResults);
 
-        TrustedRagResult result = new TrustedRagResult(preprocessResult, finalResults, rerankApplied, route);
+        TrustedRagResult result = new TrustedRagResult(preprocessResult, finalResults, rerankApplied, route, agenticExpansion);
         if (retrievalCacheEnabled) {
             putCache(cacheKey, result);
         }
@@ -144,7 +163,13 @@ public class TrustedRagRetrievalService {
         for (VectorSearchService.SearchResult item : result.getResults()) {
             copied.add(copySearchResult(item));
         }
-        return new TrustedRagResult(result.getPreprocess(), copied, result.isRerankApplied(), result.getRoute());
+        return new TrustedRagResult(
+                result.getPreprocess(),
+                copied,
+                result.isRerankApplied(),
+                result.getRoute(),
+                result.getAgenticExpansion()
+        );
     }
 
     private VectorSearchService.SearchResult copySearchResult(VectorSearchService.SearchResult item) {
@@ -185,17 +210,20 @@ public class TrustedRagRetrievalService {
         private final List<VectorSearchService.SearchResult> results;
         private final boolean rerankApplied;
         private final QueryComplexityService.QueryRoute route;
+        private final AgenticRetrievalService.ExpansionResult agenticExpansion;
 
         public TrustedRagResult(
                 QueryPreprocessService.QueryPreprocessResult preprocess,
                 List<VectorSearchService.SearchResult> results,
                 boolean rerankApplied,
-                QueryComplexityService.QueryRoute route
+                QueryComplexityService.QueryRoute route,
+                AgenticRetrievalService.ExpansionResult agenticExpansion
         ) {
             this.preprocess = preprocess;
             this.results = results;
             this.rerankApplied = rerankApplied;
             this.route = route;
+            this.agenticExpansion = agenticExpansion;
         }
     }
 }

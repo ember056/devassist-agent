@@ -321,6 +321,8 @@ public class ChatApplicationService {
         appendOptionalEvidenceSpanSection(answer, "### 安全边界\n\n", evidenceSpans, EvidenceSpan.Type.SAFETY, 6);
         appendOptionalEvidenceSpanSection(answer, "### 验证指标\n\n", evidenceSpans, EvidenceSpan.Type.VERIFICATION, 6);
 
+        appendAgenticRetrievalSection(answer, ragResult.getAgenticExpansion());
+
         answer.append("\n### Runbook GraphRAG\n\n");
         answer.append("- activatedRootCauses=").append(graphExpansion.activatedRootCauses().size()).append("\n");
         answer.append("- siblingSpans=").append(graphExpansion.siblingSpanCount()).append("\n");
@@ -349,6 +351,25 @@ public class ChatApplicationService {
                     .append("\n");
         }
         return answer.toString();
+    }
+
+    private void appendAgenticRetrievalSection(
+            StringBuilder answer,
+            AgenticRetrievalService.ExpansionResult expansion
+    ) {
+        if (expansion == null) {
+            return;
+        }
+        answer.append("\n### Agentic Retrieval\n\n");
+        answer.append("- expanded=").append(expansion.expanded()).append("\n");
+        answer.append("- addedCandidates=").append(expansion.addedCount()).append("\n");
+        answer.append("- reason=").append(expansion.reason()).append("\n");
+        if (!expansion.subqueries().isEmpty()) {
+            answer.append("- followUpQueries:\n");
+            for (String subquery : expansion.subqueries()) {
+                answer.append("  - ").append(subquery).append("\n");
+            }
+        }
     }
 
     private List<VectorSearchService.SearchResult> sourcesFromSpans(List<EvidenceSpan> spans) {

@@ -658,3 +658,66 @@ bench_rag_redis_timeout:
 ```
 
 面试表达可以这样说：我没有直接上图数据库，而是先做了轻量 GraphRAG。因为项目里的知识主要是 Runbook，天然就是标题树结构。向量召回负责定位哪本 Runbook，GraphRAG 负责在同一 Runbook 内沿根因小节补齐 evidence/action/safety/verification，再交给过滤器控噪。这样能补足向量 topK 的偶然遗漏，同时仍然保持低成本和可解释。
+
+## Agentic Retrieval Upgrade / 按需多步检索
+
+2026-07-03 在 Runbook GraphRAG 之前继续加入第一版 Agentic Retrieval。这里的 “agentic” 不是让大模型在线自由规划，而是一个低成本、可控的检索规划器：当问题属于排障/根因分析类时，系统会按场景拆出少量 follow-up queries，补查根因证据、动作、安全边界和验证指标。
+
+链路：
+
+```text
+Query Preprocess
+  -> first-pass Hybrid Retrieval
+  -> AgenticRetrievalService
+  -> optional follow-up retrieval
+  -> merge / dedupe
+  -> Rerank
+  -> EvidenceSpan
+  -> Runbook GraphRAG
+  -> Evidence Filter
+```
+
+新增代码：
+
+```text
+src/main/java/org/example/service/AgenticRetrievalService.java
+```
+
+默认配置：
+
+```yaml
+rag:
+  agentic-retrieval:
+    enabled: true
+    max-subqueries: 4
+    subquery-top-k: 6
+```
+
+示例：对于 Redis timeout + cache hit rate 下降，第一版会按需补查：
+
+```text
+redis timeout hot key evidence actions
+redis timeout big key slow command slowlog evidence actions
+redis timeout cache avalanche ttl cache hit rate evidence actions
+redis timeout safe operations verification
+```
+
+最终评测报告：
+
+```text
+harness/benchmark/reports/agentic-final1.md
+```
+
+结果：
+
+```text
+Total cases          12
+Harness pass rate    1.0000
+Source Hit Rate      1.0000
+RootCause Hit Rate   1.0000
+Structure Hit Rate   1.0000
+Judge pass rate      1.0000
+Average Judge score  4.7750
+```
+
+面试表达可以这样说：我的 Agentic Retrieval 没有直接把 LLM 放进在线检索规划，而是先做确定性、低成本的场景化多步检索。首次 hybrid retrieval 找主方向；如果是 Redis、MQ、DB、Pod 这类排障问题，就补查根因候选、处理动作、安全边界和验证指标。这样能提高 completeness，又不会引入额外模型成本和不可控循环。

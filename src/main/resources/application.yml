@@ -105,6 +105,10 @@ rag:
       enabled: true
       max-size: 2000
       ttl-seconds: 300
+  agentic-retrieval:
+    enabled: true
+    max-subqueries: 4
+    subquery-top-k: 6
   faithfulness:
     enabled: true
     verifier-agent-enabled: true

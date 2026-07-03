@@ -469,3 +469,57 @@ bench_rag_redis_timeout 最终激活：
 ```
 
 这说明 GraphRAG 的收益不是“召回更多文档”，而是“在命中文档内部按结构补齐证据”，更适合 Runbook 这类强结构知识。
+
+## 2026-07-03 Agentic Retrieval 阶段评估
+
+本阶段在 first-pass hybrid retrieval 后增加确定性 Agentic Retrieval：
+
+```text
+first-pass Hybrid Retrieval
+  -> AgenticRetrievalService
+  -> follow-up retrieval
+  -> merge / dedupe
+  -> rerank
+  -> EvidenceSpan / Runbook GraphRAG
+```
+
+第一版不调用额外 LLM，而是根据 Redis / MQ / DB / Pod 等排障场景生成少量补查 query。这样可以控制成本和延迟，也避免在线 Agent 自由循环。
+
+运行命令：
+
+```bash
+python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/agentic-final1.json
+python harness/judge_runner.py --input harness/benchmark/reports/agentic-final1.json --output harness/benchmark/reports/agentic-final1-judge.json
+python harness/benchmark_report.py --benchmark harness/benchmark/reports/agentic-final1.json --judge harness/benchmark/reports/agentic-final1-judge.json --output harness/benchmark/reports/agentic-final1.md
+```
+
+结果：
+
+| Metric | Value |
+|---|---:|
+| Total cases | 12 |
+| Harness Pass Rate | 1.0000 |
+| Source Hit Rate | 1.0000 |
+| RootCause Hit Rate | 1.0000 |
+| Structure Hit Rate | 1.0000 |
+| Judge Pass Rate | 1.0000 |
+| Average Judge Score | 4.7750 |
+
+典型 case：
+
+```text
+bench_rag_redis_timeout:
+  followUpQueries:
+    redis timeout hot key evidence actions
+    redis timeout big key slow command slowlog evidence actions
+    redis timeout cache avalanche ttl cache hit rate evidence actions
+    redis timeout safe operations verification
+  Runbook GraphRAG activatedLabels:
+    hot key, big key or slow command, cache avalanche
+```
+
+复盘：
+
+- Agentic Retrieval 提升的是补查覆盖面，不替代 EvidenceSpanFilter。
+- 子查询有上限，默认最多 4 条，每条最多 6 个候选，避免成本失控。
+- Judge Pass Rate 保持 1.0，说明补查元信息没有破坏 faithfulness / citation grounding。
