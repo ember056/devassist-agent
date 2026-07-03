@@ -524,6 +524,7 @@ See [LICENSE](LICENSE).
 Hybrid Retrieval
   -> focused sources
   -> EvidenceSpanExtractorService
+  -> EvidenceSpanFilterService
   -> evidence / action / safety / verification spans
   -> grounded answer
   -> Faithfulness
@@ -534,6 +535,7 @@ Hybrid Retrieval
 ```text
 src/main/java/org/example/service/EvidenceSpan.java
 src/main/java/org/example/service/EvidenceSpanExtractorService.java
+src/main/java/org/example/service/EvidenceSpanFilterService.java
 ```
 
 这一步的价值是把“命中文档”进一步细化为“命中哪条证据句、哪条动作句、哪条安全边界”。后续做 MAIN-RAG 风格过滤、GraphRAG 邻域扩展和 Agentic Retrieval 时，可以直接基于 EvidenceSpan 评分和组合，而不是继续处理整段 chunk。
@@ -554,4 +556,39 @@ RootCause Hit Rate   1.0000
 Structure Hit Rate   1.0000
 Judge pass rate      1.0000
 Average Judge score  4.7500
+```
+
+第二阶段继续借鉴 MAIN-RAG 的 noisy evidence filtering 思路，在 EvidenceSpan 层增加确定性过滤：
+
+```text
+filterScore =
+  supportScore * 0.45
+  + lexicalOverlap * 0.25
+  + sectionAffinity * 0.20
+  + typePrior * 0.10
+```
+
+过滤依据：
+
+- `supportScore`：证据句来自明确 marker、hybridScore、rerankScore 的综合支撑度。
+- `lexicalOverlap`：问题词和 evidence span 的文本、标题路径、来源文件名重合度。
+- `sectionAffinity`：明确根因问题是否命中对应章节，例如 `connection leak`、`cache avalanche`、`poison message`。
+- `typePrior`：action / evidence / safety / verification / context 的不同先验权重。
+
+阶段二评估报告：
+
+```text
+harness/benchmark/reports/span-filter-final2.md
+```
+
+结果：
+
+```text
+Total cases          12
+Harness pass rate    1.0000
+Source Hit Rate      1.0000
+RootCause Hit Rate   1.0000
+Structure Hit Rate   1.0000
+Judge pass rate      1.0000
+Average Judge score  4.7750
 ```

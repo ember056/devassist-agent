@@ -49,6 +49,7 @@ public class ChatApplicationService {
     private final TrustedRagRetrievalService trustedRagRetrievalService;
     private final FaithfulnessVerifierService faithfulnessVerifierService;
     private final EvidenceSpanExtractorService evidenceSpanExtractorService;
+    private final EvidenceSpanFilterService evidenceSpanFilterService;
 
     @Value("${rag.top-k:3}")
     private int ragTopK;
@@ -60,7 +61,8 @@ public class ChatApplicationService {
             AgentTraceService traceService,
             TrustedRagRetrievalService trustedRagRetrievalService,
             FaithfulnessVerifierService faithfulnessVerifierService,
-            EvidenceSpanExtractorService evidenceSpanExtractorService
+            EvidenceSpanExtractorService evidenceSpanExtractorService,
+            EvidenceSpanFilterService evidenceSpanFilterService
     ) {
         this.chatService = chatService;
         this.chatAnswerVerificationService = chatAnswerVerificationService;
@@ -69,6 +71,7 @@ public class ChatApplicationService {
         this.trustedRagRetrievalService = trustedRagRetrievalService;
         this.faithfulnessVerifierService = faithfulnessVerifierService;
         this.evidenceSpanExtractorService = evidenceSpanExtractorService;
+        this.evidenceSpanFilterService = evidenceSpanFilterService;
     }
 
     public ChatResult chat(String requestedSessionId, String question) throws Exception {
@@ -279,14 +282,24 @@ public class ChatApplicationService {
         if (sources.isEmpty()) {
             return "知识库未检索到足够相关的证据，暂时不能给出有依据的排查结论。建议先补充相关 Runbook、日志样例或告警说明。";
         }
-        List<EvidenceSpan> evidenceSpans = evidenceSpanExtractorService.extract(question, sources);
+        List<EvidenceSpan> extractedSpans = evidenceSpanExtractorService.extract(question, sources);
+        EvidenceSpanFilterService.FilterResult filterResult =
+                evidenceSpanFilterService.filter(question, extractedSpans);
+        List<EvidenceSpan> evidenceSpans = filterResult.retained().isEmpty()
+                ? extractedSpans
+                : filterResult.retained();
+        List<VectorSearchService.SearchResult> citedSources = sourcesFromSpans(evidenceSpans);
+        List<VectorSearchService.SearchResult> verificationSources = citedSources.isEmpty() ? sources : citedSources;
 
         StringBuilder answer = new StringBuilder();
         answer.append("### 基于知识库的排查回答\n\n");
         answer.append("我只根据本次命中的知识库证据句回答。用户问题中的服务名、现象描述会作为上下文使用；没有在资料中出现的命令、阈值或配置项不会扩写。\n\n");
         answer.append("- 原始问题：").append(question).append("\n");
         answer.append("- 实际检索问题：").append(ragResult.getPreprocess().finalQuery()).append("\n");
-        answer.append("- 命中文档：").append(sourceFiles(sources)).append("\n\n");
+        answer.append("- 命中文档：").append(sourceFiles(verificationSources)).append("\n");
+        answer.append("- 证据过滤：保留 ").append(evidenceSpans.size())
+                .append(" 条，过滤 ").append(filterResult.dropped().size())
+                .append(" 条\n\n");
 
         answer.append("### 证据摘要\n\n");
         appendEvidenceSpanSection(answer, evidenceSpans, EvidenceSpan.Type.EVIDENCE, "证据", 8);
@@ -302,7 +315,7 @@ public class ChatApplicationService {
         appendOptionalEvidenceSpanSection(answer, "### 验证指标\n\n", evidenceSpans, EvidenceSpan.Type.VERIFICATION, 6);
 
         FaithfulnessVerifierService.VerificationResult verification =
-                faithfulnessVerifierService.verify(answer.toString(), sources);
+                faithfulnessVerifierService.verify(answer.toString(), verificationSources);
 
         answer.append("\n### Faithfulness\n\n");
         answer.append("- 校验结果：").append(verification.passed() ? "通过" : "未通过").append("\n");
@@ -315,14 +328,30 @@ public class ChatApplicationService {
         }
 
         answer.append("\n### 参考来源\n\n");
-        for (VectorSearchService.SearchResult source : sources) {
+        for (VectorSearchService.SearchResult source : verificationSources) {
             answer.append("- ")
                     .append(citationLabel(source))
-                    .append("，metadata=")
-                    .append(source.getMetadata())
                     .append("\n");
         }
         return answer.toString();
+    }
+
+    private List<VectorSearchService.SearchResult> sourcesFromSpans(List<EvidenceSpan> spans) {
+        if (spans == null || spans.isEmpty()) {
+            return List.of();
+        }
+        return spans.stream()
+                .map(EvidenceSpan::source)
+                .filter(source -> source != null)
+                .collect(Collectors.toMap(
+                        source -> sourceName(source) + "|" + metadataValue(source, "headingPath") + "|" + metadataValue(source, "chunkIndex"),
+                        source -> source,
+                        (left, right) -> left,
+                        java.util.LinkedHashMap::new
+                ))
+                .values()
+                .stream()
+                .collect(Collectors.toList());
     }
 
     private void appendOptionalEvidenceSpanSection(
@@ -389,7 +418,7 @@ public class ChatApplicationService {
                 ))
                 .values()
                 .stream()
-                .limit(ragTopK)
+                .limit(Math.max(ragTopK, 5))
                 .collect(Collectors.toList());
         return focused.isEmpty() ? sources : focused;
     }

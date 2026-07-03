@@ -370,3 +370,50 @@ python harness/benchmark_report.py --benchmark harness/benchmark/reports/evidenc
 - EvidenceSpan 没有破坏上一阶段的确定性指标。
 - RAG 回答现在能展示每条 evidence/action/safety/verification 的来源和 support 分数。
 - 后续可以在 EvidenceSpan 层继续做 MAIN-RAG 风格过滤、Runbook GraphRAG 邻域扩展和多步 Agentic Retrieval。
+
+## 2026-07-03 EvidenceSpan Filter 阶段评估
+
+本阶段继续借鉴 MAIN-RAG 的过滤思想，在 EvidenceSpan 后增加确定性过滤服务：
+
+```text
+EvidenceSpanExtractorService
+  -> EvidenceSpanFilterService
+  -> retained spans
+  -> grounded answer
+```
+
+过滤分数：
+
+```text
+filterScore = supportScore * 0.45
+            + lexicalOverlap * 0.25
+            + sectionAffinity * 0.20
+            + typePrior * 0.10
+```
+
+运行命令：
+
+```bash
+python harness/bootstrap_docs.py --base-url http://localhost:9900
+python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/span-filter-final2.json
+python harness/judge_runner.py --input harness/benchmark/reports/span-filter-final2.json --output harness/benchmark/reports/span-filter-final2-judge.json
+python harness/benchmark_report.py --benchmark harness/benchmark/reports/span-filter-final2.json --judge harness/benchmark/reports/span-filter-final2-judge.json --output harness/benchmark/reports/span-filter-final2.md
+```
+
+结果：
+
+| Metric | Value |
+|---|---:|
+| Total cases | 12 |
+| Harness Pass Rate | 1.0000 |
+| Source Hit Rate | 1.0000 |
+| RootCause Hit Rate | 1.0000 |
+| Structure Hit Rate | 1.0000 |
+| Judge Pass Rate | 1.0000 |
+| Average Judge Score | 4.7750 |
+
+本轮复盘：
+
+- 初版过滤后 `redis_timeout` 只有 4.0，原因是宽泛 Redis 排障问题未覆盖 `big key` 证据。
+- 修复方式是把 focused source 数量从 3 放宽到 5，由 EvidenceSpanFilter 控噪。
+- 参考来源改为只列实际参与回答的 source，并移除 metadata 原文，避免本地路径出现在答案里。
