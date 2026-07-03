@@ -417,3 +417,55 @@ python harness/benchmark_report.py --benchmark harness/benchmark/reports/span-fi
 - 初版过滤后 `redis_timeout` 只有 4.0，原因是宽泛 Redis 排障问题未覆盖 `big key` 证据。
 - 修复方式是把 focused source 数量从 3 放宽到 5，由 EvidenceSpanFilter 控噪。
 - 参考来源改为只列实际参与回答的 source，并移除 metadata 原文，避免本地路径出现在答案里。
+
+## 2026-07-03 Runbook GraphRAG 阶段评估
+
+本阶段在 EvidenceSpanFilter 之前新增轻量 Runbook GraphRAG：
+
+```text
+retrieved / focused sources
+  -> EvidenceSpanExtractorService
+  -> RunbookGraphService
+  -> EvidenceSpanFilterService
+  -> grounded answer
+```
+
+核心变化：
+
+- 根据 `headingPath` 把 Runbook 解析成 document / section / root cause / evidence / action / guardrail 节点。
+- 对已命中的根因小节，补齐同一小节下的 evidence/action 兄弟节点。
+- 对命中的 Runbook 文件，从本地 Markdown 补齐同源根因、安全边界和验证指标，避免向量 topK 漏掉相邻根因。
+- 对宽泛排障问题，例如 Redis timeout + cache hit rate 下降，允许激活同一 Runbook 的多个候选根因。
+
+运行命令：
+
+```bash
+python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/graphrag-final4.json
+python harness/judge_runner.py --input harness/benchmark/reports/graphrag-final4.json --output harness/benchmark/reports/graphrag-final4-judge.json
+python harness/benchmark_report.py --benchmark harness/benchmark/reports/graphrag-final4.json --judge harness/benchmark/reports/graphrag-final4-judge.json --output harness/benchmark/reports/graphrag-final4.md
+```
+
+结果：
+
+| Metric | Value |
+|---|---:|
+| Total cases | 12 |
+| Harness Pass Rate | 1.0000 |
+| Source Hit Rate | 1.0000 |
+| RootCause Hit Rate | 1.0000 |
+| Structure Hit Rate | 1.0000 |
+| Judge Pass Rate | 1.0000 |
+| Average Judge Score | 4.7583 |
+
+关键复盘：
+
+```text
+初版只依赖向量 topK 构图，redis_timeout 宽泛问题仍漏掉 big key。
+最终版本改为：向量召回负责定位 Runbook，本地 Markdown 图负责补齐同文档根因邻域。
+bench_rag_redis_timeout 最终激活：
+  hot key
+  cache avalanche
+  big key or slow command
+```
+
+这说明 GraphRAG 的收益不是“召回更多文档”，而是“在命中文档内部按结构补齐证据”，更适合 Runbook 这类强结构知识。

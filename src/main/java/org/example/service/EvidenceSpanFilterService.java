@@ -54,12 +54,16 @@ public class EvidenceSpanFilterService {
     private boolean shouldKeep(ScoredSpan scoredSpan, List<String> targetTerms) {
         EvidenceSpan span = scoredSpan.span();
         if (!targetTerms.isEmpty() && scoredSpan.sectionAffinity() <= 0.0) {
-            return false;
+            return isGuardrail(span) && scoredSpan.filterScore() >= 0.30;
         }
-        if (span.type() == EvidenceSpan.Type.SAFETY || span.type() == EvidenceSpan.Type.VERIFICATION) {
+        if (isGuardrail(span)) {
             return scoredSpan.filterScore() >= 0.30 || scoredSpan.sectionAffinity() > 0.0;
         }
         return scoredSpan.filterScore() >= MIN_FILTER_SCORE;
+    }
+
+    private boolean isGuardrail(EvidenceSpan span) {
+        return span.type() == EvidenceSpan.Type.SAFETY || span.type() == EvidenceSpan.Type.VERIFICATION;
     }
 
     private List<EvidenceSpan> keepQuestionCriticalActions(

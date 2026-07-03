@@ -50,6 +50,7 @@ public class ChatApplicationService {
     private final FaithfulnessVerifierService faithfulnessVerifierService;
     private final EvidenceSpanExtractorService evidenceSpanExtractorService;
     private final EvidenceSpanFilterService evidenceSpanFilterService;
+    private final RunbookGraphService runbookGraphService;
 
     @Value("${rag.top-k:3}")
     private int ragTopK;
@@ -62,7 +63,8 @@ public class ChatApplicationService {
             TrustedRagRetrievalService trustedRagRetrievalService,
             FaithfulnessVerifierService faithfulnessVerifierService,
             EvidenceSpanExtractorService evidenceSpanExtractorService,
-            EvidenceSpanFilterService evidenceSpanFilterService
+            EvidenceSpanFilterService evidenceSpanFilterService,
+            RunbookGraphService runbookGraphService
     ) {
         this.chatService = chatService;
         this.chatAnswerVerificationService = chatAnswerVerificationService;
@@ -72,6 +74,7 @@ public class ChatApplicationService {
         this.faithfulnessVerifierService = faithfulnessVerifierService;
         this.evidenceSpanExtractorService = evidenceSpanExtractorService;
         this.evidenceSpanFilterService = evidenceSpanFilterService;
+        this.runbookGraphService = runbookGraphService;
     }
 
     public ChatResult chat(String requestedSessionId, String question) throws Exception {
@@ -277,16 +280,20 @@ public class ChatApplicationService {
 
     private String buildGroundedRagAnswer(String question) {
         TrustedRagRetrievalService.TrustedRagResult ragResult =
-                trustedRagRetrievalService.retrieve(question, Math.max(ragTopK, 8));
+                trustedRagRetrievalService.retrieve(question, Math.max(ragTopK, 16));
         List<VectorSearchService.SearchResult> sources = focusedSources(question, ragResult.getResults());
         if (sources.isEmpty()) {
             return "知识库未检索到足够相关的证据，暂时不能给出有依据的排查结论。建议先补充相关 Runbook、日志样例或告警说明。";
         }
+        List<VectorSearchService.SearchResult> graphCandidateSources = graphCandidateSources(sources, ragResult.getResults());
         List<EvidenceSpan> extractedSpans = evidenceSpanExtractorService.extract(question, sources);
+        List<EvidenceSpan> graphCandidateSpans = evidenceSpanExtractorService.extract(question, graphCandidateSources);
+        RunbookGraphService.GraphExpansion graphExpansion =
+                runbookGraphService.expand(question, extractedSpans, graphCandidateSpans);
         EvidenceSpanFilterService.FilterResult filterResult =
-                evidenceSpanFilterService.filter(question, extractedSpans);
+                evidenceSpanFilterService.filter(question, graphExpansion.spans());
         List<EvidenceSpan> evidenceSpans = filterResult.retained().isEmpty()
-                ? extractedSpans
+                ? graphExpansion.spans()
                 : filterResult.retained();
         List<VectorSearchService.SearchResult> citedSources = sourcesFromSpans(evidenceSpans);
         List<VectorSearchService.SearchResult> verificationSources = citedSources.isEmpty() ? sources : citedSources;
@@ -313,6 +320,14 @@ public class ChatApplicationService {
 
         appendOptionalEvidenceSpanSection(answer, "### 安全边界\n\n", evidenceSpans, EvidenceSpan.Type.SAFETY, 6);
         appendOptionalEvidenceSpanSection(answer, "### 验证指标\n\n", evidenceSpans, EvidenceSpan.Type.VERIFICATION, 6);
+
+        answer.append("\n### Runbook GraphRAG\n\n");
+        answer.append("- activatedRootCauses=").append(graphExpansion.activatedRootCauses().size()).append("\n");
+        answer.append("- siblingSpans=").append(graphExpansion.siblingSpanCount()).append("\n");
+        answer.append("- guardrailSpans=").append(graphExpansion.guardrailSpanCount()).append("\n");
+        if (!graphExpansion.activatedRootCauses().isEmpty()) {
+            answer.append("- activatedLabels=").append(String.join(", ", graphExpansion.activatedRootCauses())).append("\n");
+        }
 
         FaithfulnessVerifierService.VerificationResult verification =
                 faithfulnessVerifierService.verify(answer.toString(), verificationSources);
@@ -343,6 +358,34 @@ public class ChatApplicationService {
         return spans.stream()
                 .map(EvidenceSpan::source)
                 .filter(source -> source != null)
+                .collect(Collectors.toMap(
+                        source -> sourceName(source) + "|" + metadataValue(source, "headingPath") + "|" + metadataValue(source, "chunkIndex"),
+                        source -> source,
+                        (left, right) -> left,
+                        java.util.LinkedHashMap::new
+                ))
+                .values()
+                .stream()
+                .collect(Collectors.toList());
+    }
+
+    private List<VectorSearchService.SearchResult> graphCandidateSources(
+            List<VectorSearchService.SearchResult> focusedSources,
+            List<VectorSearchService.SearchResult> retrievedSources
+    ) {
+        if (retrievedSources == null || retrievedSources.isEmpty()) {
+            return focusedSources == null ? List.of() : focusedSources;
+        }
+        Set<String> focusedFiles = focusedSources == null
+                ? Set.of()
+                : focusedSources.stream()
+                .map(this::sourceName)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (focusedFiles.isEmpty()) {
+            return retrievedSources;
+        }
+        return retrievedSources.stream()
+                .filter(source -> focusedFiles.contains(sourceName(source)))
                 .collect(Collectors.toMap(
                         source -> sourceName(source) + "|" + metadataValue(source, "headingPath") + "|" + metadataValue(source, "chunkIndex"),
                         source -> source,
@@ -539,6 +582,10 @@ public class ChatApplicationService {
 
     private String preferredSource(String question) {
         String normalized = question == null ? "" : question.toLowerCase();
+        if (normalized.contains("consumer lag") || normalized.contains("mq")
+                || normalized.contains("backlog") || normalized.contains("consumer processing")) {
+            return "mq_backlog.md";
+        }
         if (normalized.contains("redis") || normalized.contains("缓存") || normalized.contains("cache")) {
             return "redis_timeout.md";
         }

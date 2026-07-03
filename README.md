@@ -592,3 +592,69 @@ Structure Hit Rate   1.0000
 Judge pass rate      1.0000
 Average Judge score  4.7750
 ```
+
+## Runbook GraphRAG Upgrade / Runbook 图结构增强
+
+2026-07-03 在 EvidenceSpan 和 EvidenceSpanFilter 之后继续升级 RAG 链路，引入轻量 Runbook GraphRAG。核心目标不是把知识库做成复杂图数据库，而是利用 Runbook Markdown 的天然层级结构：
+
+```text
+Document
+  -> Section
+  -> Root Cause Candidate
+  -> Evidence / Action
+  -> Safe Operations / Verification
+```
+
+在线查询链路调整为：
+
+```text
+Hybrid Retrieval
+  -> focused sources
+  -> EvidenceSpanExtractorService
+  -> RunbookGraphService
+  -> EvidenceSpanFilterService
+  -> grounded answer
+  -> Faithfulness
+```
+
+本阶段新增：
+
+```text
+src/main/java/org/example/service/RunbookGraphService.java
+```
+
+`RunbookGraphService` 做了三件事：
+
+- 基于 `headingPath` 识别同一 Runbook 里的根因小节，例如 `Root Cause Candidates > Big key or slow command`。
+- 当某个根因被召回或被问题词激活时，补齐同根因下的 evidence/action 兄弟节点。
+- 当命中某本 Runbook 时，从本地 Markdown 文件补齐同源根因、安全边界和验证指标，解决向量 topK 漏掉相邻根因的问题。
+
+这一步尤其解决了宽泛排障问题，例如“Redis timeout 增多且缓存命中率下降应该怎么分析”。这类问题不一定显式写 `big key`，单靠向量 topK 可能只召回 Hot key 或 Cache avalanche；GraphRAG 会先确定命中的 `redis_timeout.md`，再沿 Runbook 结构补齐 `big key or slow command` 等候选根因。
+
+最终评测报告：
+
+```text
+harness/benchmark/reports/graphrag-final4.md
+```
+
+结果：
+
+```text
+Total cases          12
+Harness pass rate    1.0000
+Source Hit Rate      1.0000
+RootCause Hit Rate   1.0000
+Structure Hit Rate   1.0000
+Judge pass rate      1.0000
+Average Judge score  4.7583
+```
+
+关键验证：
+
+```text
+bench_rag_redis_timeout:
+  activatedRootCauses=3
+  activatedLabels=hot key, cache avalanche, big key or slow command
+```
+
+面试表达可以这样说：我没有直接上图数据库，而是先做了轻量 GraphRAG。因为项目里的知识主要是 Runbook，天然就是标题树结构。向量召回负责定位哪本 Runbook，GraphRAG 负责在同一 Runbook 内沿根因小节补齐 evidence/action/safety/verification，再交给过滤器控噪。这样能补足向量 topK 的偶然遗漏，同时仍然保持低成本和可解释。
