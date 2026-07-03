@@ -36,6 +36,9 @@ public class AgenticRetrievalService {
     @Value("${rag.agentic-retrieval.subquery-top-k:6}")
     private int subqueryTopK;
 
+    @Value("${rag.agentic-retrieval.skip-when-primary-runbook-hit:true}")
+    private boolean skipWhenPrimaryRunbookHit;
+
     public AgenticRetrievalService(
             HybridRetrievalService hybridRetrievalService,
             AgentTraceService traceService
@@ -53,6 +56,11 @@ public class AgenticRetrievalService {
     ) {
         if (!enabled) {
             return ExpansionResult.skipped(initialResults, "disabled");
+        }
+        String query = normalize(String.join(" ", safe(originalQuery), safe(finalQuery)));
+        String primaryRunbook = primaryRunbook(query);
+        if (skipWhenPrimaryRunbookHit && !primaryRunbook.isBlank() && hasSource(initialResults, primaryRunbook)) {
+            return ExpansionResult.skipped(initialResults, "primary_runbook_hit:" + primaryRunbook);
         }
         List<String> subqueries = planSubqueries(originalQuery, finalQuery);
         if (subqueries.isEmpty()) {
@@ -149,6 +157,35 @@ public class AgenticRetrievalService {
             }
         }
         return List.copyOf(deduped);
+    }
+
+    private String primaryRunbook(String query) {
+        if (query.contains("mq") || query.contains("backlog") || query.contains("consumer")) {
+            return "mq_backlog.md";
+        }
+        if (query.contains("redis") || query.contains("cache")) {
+            return "redis_timeout.md";
+        }
+        if (query.contains("database") || query.contains("db") || query.contains("sql") || query.contains("connection")) {
+            return "db_connection_pool.md";
+        }
+        if (query.contains("pod") || query.contains("kubernetes") || query.contains("crashloopbackoff") || query.contains("oomkilled")) {
+            return "pod_restart.md";
+        }
+        return "";
+    }
+
+    private boolean hasSource(List<VectorSearchService.SearchResult> results, String sourceFile) {
+        if (results == null || results.isEmpty() || sourceFile == null || sourceFile.isBlank()) {
+            return false;
+        }
+        for (VectorSearchService.SearchResult result : results) {
+            String metadata = result.getMetadata();
+            if (metadata != null && metadata.contains("\"_file_name\":\"" + sourceFile + "\"")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isTroubleshootingQuery(String query) {

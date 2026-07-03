@@ -109,6 +109,7 @@ rag:
     enabled: true
     max-subqueries: 4
     subquery-top-k: 6
+    skip-when-primary-runbook-hit: true
   faithfulness:
     enabled: true
     verifier-agent-enabled: true

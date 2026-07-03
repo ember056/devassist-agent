@@ -523,3 +523,53 @@ bench_rag_redis_timeout:
 - Agentic Retrieval 提升的是补查覆盖面，不替代 EvidenceSpanFilter。
 - 子查询有上限，默认最多 4 条，每条最多 6 个候选，避免成本失控。
 - Judge Pass Rate 保持 1.0，说明补查元信息没有破坏 faithfulness / citation grounding。
+
+## 2026-07-03 Agentic Retrieval 延迟优化
+
+问题：
+
+```text
+agentic-final1 虽然质量稳定，但所有排障类 RAG case 都触发 follow-up retrieval。
+这会带来额外 Milvus / BM25 检索开销。
+```
+
+优化：
+
+```text
+如果 first-pass retrieval 已命中主 Runbook：
+  redis_timeout.md
+  mq_backlog.md
+  db_connection_pool.md
+  pod_restart.md
+
+则跳过 Agentic follow-up retrieval，
+让 Runbook GraphRAG 从本地 Markdown 结构补齐根因邻域。
+```
+
+新增配置：
+
+```yaml
+rag.agentic-retrieval.skip-when-primary-runbook-hit: true
+```
+
+运行命令：
+
+```bash
+python harness/runner.py --cases harness/benchmark/cases --base-url http://localhost:9900 --output harness/benchmark/reports/agentic-latency1.json
+python harness/judge_runner.py --input harness/benchmark/reports/agentic-latency1.json --output harness/benchmark/reports/agentic-latency1-judge.json
+python harness/benchmark_report.py --benchmark harness/benchmark/reports/agentic-latency1.json --judge harness/benchmark/reports/agentic-latency1-judge.json --output harness/benchmark/reports/agentic-latency1.md
+```
+
+结果：
+
+| Report | Avg latency | P95 latency | Harness Pass | Judge Pass | Avg Judge |
+|---|---:|---:|---:|---:|---:|
+| `agentic-final1` | 4941 ms | 6724 ms | 1.0000 | 1.0000 | 4.7750 |
+| `agentic-latency1` | 4133 ms | 5600 ms | 1.0000 | 1.0000 | 4.7667 |
+
+复盘：
+
+- 平均延迟下降约 16.4%。
+- P95 延迟下降约 16.7%。
+- 质量指标未出现结构性回退。
+- gRPC 不是当前优先优化项，因为主要耗时不在 HTTP 控制器，而在检索、rerank、模型调用和多步补查；Milvus SDK 本身已使用 gRPC。

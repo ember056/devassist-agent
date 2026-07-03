@@ -721,3 +721,37 @@ Average Judge score  4.7750
 ```
 
 面试表达可以这样说：我的 Agentic Retrieval 没有直接把 LLM 放进在线检索规划，而是先做确定性、低成本的场景化多步检索。首次 hybrid retrieval 找主方向；如果是 Redis、MQ、DB、Pod 这类排障问题，就补查根因候选、处理动作、安全边界和验证指标。这样能提高 completeness，又不会引入额外模型成本和不可控循环。
+
+## Latency Optimization / 延迟优化
+
+2026-07-03 对 Agentic Retrieval 做了触发条件收敛。上一版只要识别为排障类问题就会补查 follow-up queries；但很多 benchmark 首轮已经命中了主 Runbook，后续 Runbook GraphRAG 可以从本地 Markdown 补齐根因邻域，因此没必要再做多次 Milvus 检索。
+
+新增配置：
+
+```yaml
+rag:
+  agentic-retrieval:
+    skip-when-primary-runbook-hit: true
+```
+
+优化逻辑：
+
+```text
+first-pass retrieval 命中 redis_timeout.md / mq_backlog.md / db_connection_pool.md / pod_restart.md
+  -> 跳过 Agentic follow-up retrieval
+  -> 交给 Runbook GraphRAG 本地结构补齐
+
+first-pass retrieval 未命中主 Runbook
+  -> 才触发 Agentic Retrieval 补查
+```
+
+延迟对比：
+
+| Report | Average latency | P95 latency | Judge Pass Rate | Average Judge Score |
+|---|---:|---:|---:|---:|
+| `agentic-final1` | 4941 ms | 6724 ms | 1.0000 | 4.7750 |
+| `agentic-latency1` | 4133 ms | 5600 ms | 1.0000 | 4.7667 |
+
+结论：平均延迟下降约 16.4%，P95 下降约 16.7%，确定性指标仍全部为 1.0。Judge 平均分有小幅波动，但通过率保持 1.0。
+
+关于 gRPC：当前项目中最重的耗时主要来自 embedding / Milvus retrieval / BM25 / rerank / 多步补查 / LLM，而不是 Spring Boot HTTP 控制器本身。Milvus Java SDK 底层已经使用 gRPC，因此短期内把前后端 REST/SSE 改成 gRPC 对端到端延迟收益有限。更优先的优化方向是减少不必要检索、缓存、并行化检索和按需触发。
