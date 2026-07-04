@@ -474,7 +474,7 @@ harness/benchmark/cases/     带 labels 的 Benchmark case
 harness/benchmark/sources.md 公开资料参考边界说明
 ```
 
-这些数据不是企业真实工单，而是参考公开 SRE Runbook、Prometheus Operator Runbooks、Google SRE incident response 等资料的结构后构造的 synthetic benchmark data，用于可复现实验和面试讲解。
+这些数据不是企业真实工单，而是参考公开 SRE Runbook、Prometheus Operator Runbooks、Google SRE incident response 等资料的结构后构造的 synthetic benchmark data，用于可复现实验、回归验证和质量评估。
 
 ## Development Notes / 开发提示
 
@@ -657,7 +657,7 @@ bench_rag_redis_timeout:
   activatedLabels=hot key, cache avalanche, big key or slow command
 ```
 
-面试表达可以这样说：我没有直接上图数据库，而是先做了轻量 GraphRAG。因为项目里的知识主要是 Runbook，天然就是标题树结构。向量召回负责定位哪本 Runbook，GraphRAG 负责在同一 Runbook 内沿根因小节补齐 evidence/action/safety/verification，再交给过滤器控噪。这样能补足向量 topK 的偶然遗漏，同时仍然保持低成本和可解释。
+本阶段没有直接引入图数据库，而是先实现轻量 GraphRAG：项目知识主要来自 Runbook，天然具备 Markdown 标题层级。向量召回负责定位目标 Runbook，GraphRAG 负责在同一 Runbook 内沿根因小节补齐 evidence/action/safety/verification，再交给过滤器控噪。这样可以补足向量 topK 的偶然遗漏，同时保持低成本和可解释。
 
 ## Agentic Retrieval Upgrade / 按需多步检索
 
@@ -720,7 +720,7 @@ Judge pass rate      1.0000
 Average Judge score  4.7750
 ```
 
-面试表达可以这样说：我的 Agentic Retrieval 没有直接把 LLM 放进在线检索规划，而是先做确定性、低成本的场景化多步检索。首次 hybrid retrieval 找主方向；如果是 Redis、MQ、DB、Pod 这类排障问题，就补查根因候选、处理动作、安全边界和验证指标。这样能提高 completeness，又不会引入额外模型成本和不可控循环。
+Agentic Retrieval 第一版没有直接把 LLM 放进在线检索规划，而是采用确定性、低成本的场景化多步检索。首次 hybrid retrieval 负责定位主方向；如果是 Redis、MQ、DB、Pod 这类排障问题，再补查根因候选、处理动作、安全边界和验证指标。这样可以提高 completeness，同时避免引入额外模型成本和不可控循环。
 
 ## Latency Optimization / 延迟优化
 

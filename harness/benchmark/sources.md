@@ -29,9 +29,8 @@
 - 测试 AIOps workflow 的根因命中。
 - 比较 RAG 改造前后的 Source Hit Rate、RootCause Hit Rate、Structure Hit Rate 和 Judge 分数。
 
-## 面试表达
+## 评估说明
 
-可以这样说：
+说明：
 
 > 我没有使用真实企业内部工单，因为这类数据涉及权限和隐私。项目里采用公开 SRE Runbook、Prometheus Operator Runbook、Google SRE incident response 等资料的结构，构造了脱敏模拟工单和 Runbook。每条 benchmark case 都有 expectedSources、expectedRootCause、expectedEvidence 等标注，用来评估 RAG 召回、AIOps 根因命中和报告结构质量。这样既能复现工程链路，又不会把模拟数据伪装成真实企业数据。
-
